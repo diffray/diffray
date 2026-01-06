@@ -11,6 +11,7 @@ import { createMatchRulesStage } from "./match-rules";
 import { createExecuteAgentsStage } from "./execute-agents";
 import { createAggregateResultsStage } from "./aggregate-results";
 import { createDeduplicationStage } from "./deduplication";
+import { createValidationStage } from "./validation";
 
 const DIFFRAY_DIR = join(homedir(), ".diffray");
 const STAGES_CONFIG_FILE = join(DIFFRAY_DIR, "stages.json");
@@ -39,6 +40,7 @@ const BUILTIN_STAGES = {
   "execute-agents": createExecuteAgentsStage,
   "aggregate-results": createAggregateResultsStage,
   "deduplication": createDeduplicationStage,
+  "validation": createValidationStage,
 };
 
 /**
@@ -101,6 +103,7 @@ export function getDefaultStages(): Stage[] {
     createExecuteAgentsStage(),
     createAggregateResultsStage(),
     createDeduplicationStage(),
+    createValidationStage(),
   ];
 }
 

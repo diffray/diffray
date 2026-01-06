@@ -28,7 +28,7 @@ export function createDeduplicationStage(): Stage {
       });
 
       const removedResults = beforeResults - context.results.length;
-      if (removedResults > 0) {
+      if (removedResults > 0 && !context.quiet) {
         log.sync(`Removed ${removedResults} duplicate result(s)`);
       }
 
@@ -54,7 +54,7 @@ export function createDeduplicationStage(): Stage {
       });
 
       const removedIssues = totalIssuesBefore - totalIssuesAfter;
-      if (removedIssues > 0) {
+      if (removedIssues > 0 && !context.quiet) {
         log.sync(`Removed ${removedIssues} duplicate issue(s)`);
       }
 

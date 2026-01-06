@@ -75,8 +75,20 @@ diffray
 # ✅ Pipeline completed successfully in 102ms  ⚡ 2x faster!
 # 📊 2/2 agents succeeded
 
-# Verbose mode (shows file details)
-VERBOSE=1 diffray
+# Verbose mode (shows file details and prompts)
+diffray --verbose
+
+# JSON output (machine-readable)
+diffray --json
+
+# Filter by severity (show only errors)
+diffray --severity=error
+
+# Filter by multiple severities (errors and warnings)
+diffray --severity=error,warning
+
+# Combine options
+diffray --json --severity=error
 
 # Output includes:
 #    📝 README.md: +141 -5
@@ -103,6 +115,23 @@ diffray agents order code-review 1
 
 # Sync agents from backend
 diffray agents sync
+```
+
+### Manage Executors
+
+```bash
+# List all executors
+diffray executors list
+
+# Show executor details
+diffray executors show auggie-cli
+
+# Enable/disable executors
+diffray executors enable claude-api
+diffray executors disable auggie-cli
+
+# Sync executors from backend
+diffray executors sync
 ```
 
 ### Manage Rules
@@ -248,6 +277,149 @@ Example MCP configuration in `~/.mcp/config.json`:
       "disabled": false
     }
   }
+}
+```
+
+### Executors Configuration
+
+Executors define **how** to run SubAgents. diffray supports multiple executor types:
+
+- **CLI Executors** - Run CLI tools like `auggie`, `claude`, etc.
+- **LLM API Executors** - Call LLM APIs directly (Claude, GPT, etc.)
+- **MCP Executors** - Use Model Context Protocol servers
+
+Executors are stored in `~/.diffray/executors.json`.
+
+#### Default Executors
+
+By default, diffray comes with:
+- **default-cli** (enabled) - Stub executor for testing - prints prompt preview, waits 5s, returns empty array
+- **auggie-cli** (disabled) - Uses Auggie CLI for code review
+- **claude-api** (disabled) - Claude API executor
+- **openai-api** (disabled) - OpenAI API executor
+
+The **default-cli** stub executor is perfect for:
+- Testing the pipeline without requiring external tools
+- Understanding how executors work
+- Development and debugging
+
+To use a real executor, enable it:
+```bash
+diffray executors enable auggie-cli
+diffray executors disable default-cli
+```
+
+#### Configuring Executors
+
+Create or edit `~/.diffray/executors.json`:
+
+```json
+{
+  "executors": [
+    {
+      "id": "auggie-cli",
+      "name": "Auggie CLI",
+      "description": "Execute via Auggie CLI agent",
+      "type": "cli",
+      "command": "auggie",
+      "args": ["--print", "--quiet", "--model", "haiku4.5"],
+      "timeout": 60,
+      "enabled": true
+    },
+    {
+      "id": "claude-api",
+      "name": "Claude API",
+      "description": "Execute via Anthropic Claude API",
+      "type": "llm-api",
+      "provider": "anthropic",
+      "model": "claude-3-5-sonnet-20241022",
+      "temperature": 0.7,
+      "maxTokens": 4096,
+      "enabled": false,
+      "env": {
+        "ANTHROPIC_API_KEY": "sk-ant-..."
+      }
+    },
+    {
+      "id": "openai-api",
+      "name": "OpenAI API",
+      "description": "Execute via OpenAI GPT API",
+      "type": "llm-api",
+      "provider": "openai",
+      "model": "gpt-4",
+      "temperature": 0.7,
+      "maxTokens": 4096,
+      "enabled": false,
+      "env": {
+        "OPENAI_API_KEY": "sk-..."
+      }
+    }
+  ]
+}
+```
+
+#### CLI Executor Options
+
+- `id` - Unique executor identifier
+- `name` - Display name
+- `description` - Description
+- `type` - Must be `"cli"`
+- `command` - Command to execute (e.g., `"auggie"`, `"claude"`)
+- `args` - Array of command arguments
+- `timeout` - Timeout in seconds (default: 60)
+- `enabled` - Enable/disable executor
+- `env` - Environment variables (optional)
+
+#### LLM API Executor Options
+
+- `id` - Unique executor identifier
+- `name` - Display name
+- `description` - Description
+- `type` - Must be `"llm-api"`
+- `provider` - API provider (`"anthropic"`, `"openai"`)
+- `model` - Model name (e.g., `"claude-3-5-sonnet-20241022"`, `"gpt-4"`)
+- `temperature` - Temperature (0.0-1.0)
+- `maxTokens` - Maximum tokens to generate
+- `enabled` - Enable/disable executor
+- `env` - Environment variables with API keys
+
+#### Example: Custom CLI Executor
+
+```json
+{
+  "id": "my-custom-tool",
+  "name": "My Custom Tool",
+  "description": "Custom code review tool",
+  "type": "cli",
+  "command": "my-tool",
+  "args": ["--mode", "review", "--format", "text"],
+  "timeout": 30,
+  "enabled": true
+}
+```
+
+#### Linking SubAgents to Executors
+
+SubAgents reference executors via `executorId`. Edit `~/.diffray/subagents.json`:
+
+```json
+{
+  "subagents": [
+    {
+      "id": "code-review",
+      "name": "Code Review",
+      "executorId": "auggie-cli",
+      "enabled": true
+    }
+  ]
+}
+```
+
+To use a different executor, change the `executorId`:
+
+```json
+{
+  "executorId": "claude-api"  // Use Claude API instead
 }
 ```
 

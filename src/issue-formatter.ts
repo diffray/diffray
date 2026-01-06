@@ -154,3 +154,70 @@ export function formatIssuesByFile(issues: Issue[]): string {
   return output.join("\n");
 }
 
+/**
+ * Format pipeline result as JSON for machine consumption
+ */
+export interface JSONOutput {
+  success: boolean;
+  totalDuration: number;
+  stats: {
+    totalIssues: number;
+    errors: number;
+    warnings: number;
+    info: number;
+    suggestions: number;
+    filesAnalyzed: number;
+    agentsExecuted: number;
+    agentsSucceeded: number;
+    agentsFailed: number;
+  };
+  issues: Issue[];
+  files: {
+    file: string;
+    issueCount: number;
+    issues: Issue[];
+  }[];
+}
+
+export function formatAsJSON(
+  issues: Issue[],
+  success: boolean,
+  totalDuration: number,
+  agentsExecuted: number,
+  agentsSucceeded: number,
+  filesAnalyzed: number
+): string {
+  const errorCount = issues.filter((i) => i.severity === "error").length;
+  const warningCount = issues.filter((i) => i.severity === "warning").length;
+  const infoCount = issues.filter((i) => i.severity === "info").length;
+  const suggestionCount = issues.filter((i) => i.severity === "suggestion").length;
+
+  // Group issues by file
+  const grouped = groupIssuesByFile(issues);
+  const filesList = Array.from(grouped.entries()).map(([file, fileIssues]) => ({
+    file,
+    issueCount: fileIssues.length,
+    issues: fileIssues,
+  }));
+
+  const output: JSONOutput = {
+    success,
+    totalDuration,
+    stats: {
+      totalIssues: issues.length,
+      errors: errorCount,
+      warnings: warningCount,
+      info: infoCount,
+      suggestions: suggestionCount,
+      filesAnalyzed,
+      agentsExecuted,
+      agentsSucceeded,
+      agentsFailed: agentsExecuted - agentsSucceeded,
+    },
+    issues,
+    files: filesList,
+  };
+
+  return JSON.stringify(output, null, 2);
+}
+

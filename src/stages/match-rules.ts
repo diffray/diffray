@@ -23,10 +23,12 @@ export function createMatchRulesStage(): Stage {
       // Store matched rules in context for later stages
       context.matchedRules = matched;
 
-      log.sync(`Matched ${matched.length} rule(s)`);
+      if (!context.quiet) {
+        log.sync(`Matched ${matched.length} rule(s)`);
 
-      for (const match of matched) {
-        log.plain(`  ${match.rule.name}: ${match.files.length} file(s) → ${match.subAgent.name}`);
+        for (const match of matched) {
+          log.plain(`  ${match.rule.name}: ${match.files.length} file(s) → ${match.subAgent.name}`);
+        }
       }
 
       return {

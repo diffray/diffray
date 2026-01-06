@@ -9,6 +9,17 @@ import type { AgentExecutor } from "../types";
  */
 export function getDefaultExecutors(): AgentExecutor[] {
   return [
+    // Default CLI Executor (stub for testing)
+    {
+      id: "default-cli",
+      name: "Default CLI (Stub)",
+      description: "Default CLI executor stub for testing - prints prompt preview, waits 5s, returns empty array",
+      type: "cli",
+      command: "bash",
+      args: ["-c", "PROMPT=$(cat); echo '=== STUB EXECUTOR ===' >&2; echo \"Received prompt (first 200 chars): ${PROMPT:0:200}...\" >&2; echo 'Waiting 5 seconds...' >&2; sleep 5; echo '[]'"],
+      timeout: 10,
+      enabled: true, // Enabled by default for testing
+    },
     // Auggie CLI Executor
     {
       id: "auggie-cli",
@@ -18,7 +29,7 @@ export function getDefaultExecutors(): AgentExecutor[] {
       command: "auggie",
       args: ["--print", "--quiet", "--model", "haiku4.5"],
       timeout: 60,
-      enabled: true,
+      enabled: false, // Disabled by default - enable in config if you have auggie
     },
     // Claude API Executor
     {

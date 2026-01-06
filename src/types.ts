@@ -140,6 +140,7 @@ export interface PipelineContext {
     branch?: string;
   };
   verbose?: boolean;
+  quiet?: boolean;  // Suppress all logs (for JSON output mode)
   matchedRules?: MatchedRule[];  // Matched rules from match-rules stage
 }
 

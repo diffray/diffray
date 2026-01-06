@@ -2,7 +2,7 @@
  * Stage 0: Load Rules
  */
 
-import type { Stage, StageResult } from "../types";
+import type { Stage, StageResult, PipelineContext } from "../types";
 import { loadRules } from "../rules";
 import { log } from "../logger";
 
@@ -13,11 +13,13 @@ export function createLoadRulesStage(): Stage {
     description: "Load matching rules",
     enabled: true,
     order: 0,
-    execute: async (): Promise<StageResult> => {
+    execute: async (context: PipelineContext): Promise<StageResult> => {
       const startTime = Date.now();
       const rules = await loadRules();
 
-      log.sync(`Loaded ${rules.length} rule(s)`);
+      if (!context.quiet) {
+        log.sync(`Loaded ${rules.length} rule(s)`);
+      }
 
       return {
         stageId: "load-rules",

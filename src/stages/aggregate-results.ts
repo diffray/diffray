@@ -17,7 +17,9 @@ export function createAggregateResultsStage(): Stage {
       const success = context.results.filter((r) => r.success).length;
       const failed = context.results.filter((r) => !r.success).length;
 
-      log.sync(`Results: ${success} success, ${failed} failed`);
+      if (!context.quiet) {
+        log.sync(`Results: ${success} success, ${failed} failed`);
+      }
 
       return {
         stageId: "aggregate-results",

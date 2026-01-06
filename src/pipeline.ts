@@ -93,7 +93,7 @@ export class Pipeline {
   /**
    * Execute pipeline
    */
-  async execute(diffs: GitDiff[], verbose = false): Promise<PipelineResult> {
+  async execute(diffs: GitDiff[], verbose = false, quiet = false): Promise<PipelineResult> {
     const startTime = Date.now();
 
     // Create context
@@ -106,6 +106,7 @@ export class Pipeline {
         repository: process.cwd(),
       },
       verbose,
+      quiet,
     };
 
     // Execute stages

@@ -27,7 +27,7 @@ SUGGESTION: <how to fix>
 Repeat for each issue found.`,
       enabled: true,
       order: 1,
-      executorId: "auggie-cli", // Default executor
+      executorId: "auggie-cli", // Use auggie-cli for real testing
     },
     {
       id: "security-scan",
@@ -47,7 +47,7 @@ SUGGESTION: <how to fix>
 Repeat for each issue found.`,
       enabled: false, // Disabled - not passing
       order: 2,
-      executorId: "auggie-cli", // Default executor
+      executorId: "default-cli", // Default stub executor for testing
     },
     {
       id: "performance-check",
@@ -67,7 +67,7 @@ SUGGESTION: <how to fix>
 Repeat for each issue found.`,
       enabled: false,
       order: 3,
-      executorId: "auggie-cli", // Default executor
+      executorId: "default-cli", // Default stub executor for testing
     },
   ];
 }
