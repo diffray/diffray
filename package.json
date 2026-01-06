@@ -1,0 +1,24 @@
+{
+  "name": "diffray",
+  "version": "0.1.0",
+  "description": "AI-powered code review CLI for git changes",
+  "type": "module",
+  "bin": {
+    "diffray": "./bin/diffray.ts"
+  },
+  "scripts": {
+    "dev": "bun run ./bin/diffray.ts",
+    "build": "bun build ./bin/diffray.ts --compile --outfile diffray",
+    "link": "bun link",
+    "unlink": "bun unlink"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "zod": "^3.22.4"
+  }
+}
