@@ -6,19 +6,58 @@
   "license": "MIT",
   "type": "module",
   "bin": {
-    "diffray": "./bin/diffray.ts"
+    "diffray": "./bin/diffray-wrapper.js"
   },
+  "files": [
+    "bin/diffray-wrapper.js",
+    "scripts/postinstall.js",
+    "src/defaults"
+  ],
   "scripts": {
+    "postinstall": "node scripts/postinstall.js",
     "dev": "bun run ./bin/diffray.ts",
     "build": "bun build ./bin/diffray.ts --compile --target=bun --minify --outfile dist/diffray",
+    "build:all": "bash scripts/build-all.sh",
     "link": "bun link",
     "unlink": "bun unlink",
     "ts-check": "tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "prepublishOnly": "echo 'Run build:all and create GitHub release first!'"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/diffray/diffray.git"
+  },
+  "homepage": "https://github.com/diffray/diffray#readme",
+  "bugs": {
+    "url": "https://github.com/diffray/diffray/issues"
+  },
+  "keywords": [
+    "code-review",
+    "ai",
+    "cli",
+    "git",
+    "diff",
+    "llm",
+    "claude",
+    "cerebras",
+    "pull-request"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
   "devDependencies": {
     "@eslint/js": "^9.39.2",
     "@types/bun": "latest",
@@ -36,7 +75,6 @@
     "citty": "^0.1.6",
     "diff": "^8.0.2",
     "glob": "^13.0.0",
-    "isomorphic-git": "^1.36.1",
     "zod": "^3.22.4"
   }
 }

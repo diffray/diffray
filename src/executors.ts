@@ -4,42 +4,130 @@
  */
 
 import type { AgentExecutor, ExecutionContext, ExecutionResult, Issue } from './types';
+import type { Subprocess } from 'bun';
 import { log } from './logger';
 import { loadConfig } from './config';
 import { parseIssues } from './issue-parser';
 import { formatIssue } from './issue-formatter';
+import { getCached, CACHE_KEYS } from './cache';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
-// ============ Prompt Loaders (cached) ============
+// ============ Process Management ============
 
-let outputFormatCache: string | null = null;
-let claudeCliSuffixCache: string | null = null;
+// Track all active spawned processes for cleanup on SIGINT
+const activeProcesses = new Set<Subprocess>();
+
+function trackProcess(proc: Subprocess): void {
+  activeProcesses.add(proc);
+  proc.exited.then(() => activeProcesses.delete(proc)).catch(() => activeProcesses.delete(proc));
+}
+
+function killAllProcesses(): void {
+  for (const proc of activeProcesses) {
+    try {
+      proc.kill();
+    } catch {
+      // Process may already be dead
+    }
+  }
+  activeProcesses.clear();
+}
+
+// Register SIGINT handler once
+let sigintHandlerRegistered = false;
+function ensureSigintHandler(): void {
+  if (sigintHandlerRegistered) return;
+  sigintHandlerRegistered = true;
+
+  process.on('SIGINT', () => {
+    killAllProcesses();
+    process.exit(130); // Standard exit code for SIGINT
+  });
+}
+
+// ============ Retry Helper ============
+
+const DEFAULT_RETRIES = 3;
+const RETRY_BASE_DELAY = 1000; // 1 second
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Fetch with exponential backoff retry for transient errors
+ * Retries on: 429 (rate limit), 5xx (server errors), network errors
+ */
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  retries = DEFAULT_RETRIES
+): Promise<Response> {
+  let lastError: Error | undefined;
+
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const res = await fetch(url, options);
+
+      // Success or client error (4xx except 429) - don't retry
+      if (res.ok || (res.status >= 400 && res.status < 500 && res.status !== 429)) {
+        return res;
+      }
+
+      // Rate limit or server error - retry with backoff
+      lastError = new Error(`HTTP ${res.status}`);
+
+      if (attempt < retries - 1) {
+        const delay = RETRY_BASE_DELAY * Math.pow(2, attempt);
+        if (process.env.DEBUG) {
+          log.plain(`⏳ Retry ${attempt + 1}/${retries - 1} after ${delay}ms (${res.status})`);
+        }
+        await sleep(delay);
+      }
+    } catch (e) {
+      // Network error - retry
+      lastError = e instanceof Error ? e : new Error(String(e));
+
+      if (attempt < retries - 1) {
+        const delay = RETRY_BASE_DELAY * Math.pow(2, attempt);
+        if (process.env.DEBUG) {
+          log.plain(`⏳ Retry ${attempt + 1}/${retries - 1} after ${delay}ms (${lastError.message})`);
+        }
+        await sleep(delay);
+      }
+    }
+  }
+
+  throw lastError || new Error('Max retries exceeded');
+}
+
+// ============ Prompt Loaders (using unified cache) ============
 
 async function loadOutputFormat(): Promise<string> {
-  if (outputFormatCache) return outputFormatCache;
-  try {
-    const __filename = fileURLToPath(import.meta.url);
-    const __dirname = dirname(__filename);
-    const formatPath = join(__dirname, 'defaults', 'prompts', 'output-format.md');
-    outputFormatCache = await Bun.file(formatPath).text();
-    return outputFormatCache;
-  } catch {
-    return '\n\n# Output Format\n\nReturn results as JSON array: []';
-  }
+  return getCached(CACHE_KEYS.OUTPUT_FORMAT, async () => {
+    try {
+      const __filename = fileURLToPath(import.meta.url);
+      const __dirname = dirname(__filename);
+      const formatPath = join(__dirname, 'defaults', 'prompts', 'output-format.md');
+      return await Bun.file(formatPath).text();
+    } catch {
+      return '\n\n# Output Format\n\nReturn results as JSON array: []';
+    }
+  });
 }
 
 async function loadClaudeCliSuffix(): Promise<string> {
-  if (claudeCliSuffixCache) return claudeCliSuffixCache;
-  try {
-    const __filename = fileURLToPath(import.meta.url);
-    const __dirname = dirname(__filename);
-    const suffixPath = join(__dirname, 'defaults', 'prompts', 'claude-cli-suffix.md');
-    claudeCliSuffixCache = await Bun.file(suffixPath).text();
-    return claudeCliSuffixCache;
-  } catch {
-    return '';
-  }
+  return getCached(CACHE_KEYS.CLAUDE_CLI_SUFFIX, async () => {
+    try {
+      const __filename = fileURLToPath(import.meta.url);
+      const __dirname = dirname(__filename);
+      const suffixPath = join(__dirname, 'defaults', 'prompts', 'claude-cli-suffix.md');
+      return await Bun.file(suffixPath).text();
+    } catch {
+      return '';
+    }
+  });
 }
 
 function buildPrompt(systemPrompt: string, input: string, format: string): string {
@@ -188,11 +276,14 @@ async function streamClaudeCli(
   timeout: number,
   opts: StreamOptions
 ): Promise<string> {
+  ensureSigintHandler();
+
   const proc = Bun.spawn(cmdArgs, {
     stdout: 'pipe',
     stderr: 'pipe',
     env: { ...process.env, ...env },
   });
+  trackProcess(proc);
 
   const timeoutMs = timeout * 1000;
   const timer = setTimeout(() => proc.kill(), timeoutMs);
@@ -392,12 +483,15 @@ function createCLIExecutor(config: CLIConfig): Executor {
           );
         }
 
+        ensureSigintHandler();
+
         const proc = Bun.spawn(cmdArgs, {
           stdin: config.useStdin ? 'pipe' : 'ignore',
           stdout: 'pipe',
           stderr: 'pipe',
           env: { ...process.env, ...config.env },
         });
+        trackProcess(proc);
 
         if (config.useStdin && proc.stdin) {
           const promptToSend = config.systemPromptArg
@@ -482,7 +576,7 @@ async function cerebrasRequest(
 ): Promise<string> {
   if (!cfg.apiKey) throw new Error('CEREBRAS_API_KEY not set');
 
-  const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
+  const res = await fetchWithRetry(`${cfg.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
     body: JSON.stringify({

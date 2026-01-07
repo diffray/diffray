@@ -47,7 +47,7 @@ export function createExecuteAgentsStage(): Stage {
       // Pre-calculate batch info for all enabled agents
       const agentBatchInfo = new Map<
         string,
-        { batches: ReturnType<typeof batchDiffs>; files: number; rules: number }
+        { batches: ReturnType<typeof batchDiffs>; files: number; rules: number; systemPrompt: string }
       >();
       let totalBatches = 0;
 
@@ -86,6 +86,7 @@ export function createExecuteAgentsStage(): Stage {
           batches,
           files: agentDiffs.length,
           rules: matchedRules.length,
+          systemPrompt,
         });
         totalBatches += batches.length;
       }
@@ -132,19 +133,7 @@ export function createExecuteAgentsStage(): Stage {
 
             // Get pre-calculated batch info (guaranteed to exist for agentsToExecute)
             const batchInfo = agentBatchInfo.get(agent.id)!;
-            const { batches } = batchInfo;
-
-            // Build system prompt: Agent.systemPrompt + all Rule.prompts
-            const matchedRules =
-              context.matchedRules?.filter((mr) => mr.agent.id === agent.id) || [];
-            let systemPrompt = agent.systemPrompt;
-            const rulePrompts = matchedRules
-              .map((mr) => mr.rule.prompt)
-              .filter(Boolean)
-              .join('\n\n');
-            if (rulePrompts) {
-              systemPrompt = `${agent.systemPrompt}\n\n${rulePrompts}`;
-            }
+            const { batches, systemPrompt } = batchInfo;
 
             const systemTokens = estimateTokens(systemPrompt);
 

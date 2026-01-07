@@ -1,31 +1,19 @@
-import git from 'isomorphic-git';
-import fs from 'node:fs/promises';
 import * as Diff from 'diff';
-import { spawn } from 'node:child_process';
 import type { GitDiff } from './types.js';
 
 /**
  * Run native git command and return stdout
  */
 async function runGit(args: string[], cwd: string = process.cwd()): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn('git', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
+  const proc = Bun.spawn(['git', ...args], { cwd, stdout: 'pipe', stderr: 'pipe' });
+  const exitCode = await proc.exited;
 
-    proc.stdout.on('data', (data) => (stdout += data));
-    proc.stderr.on('data', (data) => (stderr += data));
-
-    proc.on('close', (code) => {
-      if (code === 0) {
-        resolve(stdout);
-      } else {
-        reject(new Error(`git ${args[0]} failed: ${stderr || `exit code ${code}`}`));
-      }
-    });
-
-    proc.on('error', reject);
-  });
+  if (exitCode === 0) {
+    return await new Response(proc.stdout).text();
+  } else {
+    const stderr = await new Response(proc.stderr).text();
+    throw new Error(`git ${args[0]} failed: ${stderr || `exit code ${exitCode}`}`);
+  }
 }
 
 /**
@@ -108,30 +96,50 @@ export async function hasUncommittedChanges(): Promise<boolean> {
 }
 
 /**
- * Status matrix row type: [filepath, HEAD, WORKDIR, STAGE]
+ * Status entry from git status --porcelain
  */
-type StatusRow = [string, number, number, number];
-
-/**
- * Cached status matrix to avoid repeated git calls
- */
-let cachedStatusMatrix: StatusRow[] | null = null;
-
-/**
- * Get status matrix (cached)
- */
-async function getStatusMatrix(): Promise<StatusRow[]> {
-  if (cachedStatusMatrix === null) {
-    cachedStatusMatrix = (await git.statusMatrix({ fs, dir: process.cwd() })) as StatusRow[];
-  }
-  return cachedStatusMatrix;
+interface StatusEntry {
+  file: string;
+  index: string;  // X - index status
+  worktree: string;  // Y - worktree status
 }
 
 /**
- * Clear cached status matrix (call when git state changes)
+ * Cached status entries to avoid repeated git calls
+ */
+let cachedStatus: StatusEntry[] | null = null;
+
+/**
+ * Parse git status --porcelain output
+ */
+function parseStatus(output: string): StatusEntry[] {
+  return output
+    .trim()
+    .split('\n')
+    .filter((line) => line.length >= 3)
+    .map((line) => ({
+      file: line.slice(3),
+      index: line[0] ?? ' ',
+      worktree: line[1] ?? ' ',
+    }));
+}
+
+/**
+ * Get status entries (cached)
+ */
+async function getStatus(): Promise<StatusEntry[]> {
+  if (cachedStatus === null) {
+    const output = await runGit(['status', '--porcelain']);
+    cachedStatus = parseStatus(output);
+  }
+  return cachedStatus;
+}
+
+/**
+ * Clear cached status (call when git state changes)
  */
 export function clearStatusCache(): void {
-  cachedStatusMatrix = null;
+  cachedStatus = null;
 }
 
 /**
@@ -139,7 +147,7 @@ export function clearStatusCache(): void {
  */
 export async function isGitRepository(): Promise<boolean> {
   try {
-    await git.findRoot({ fs, filepath: process.cwd() });
+    await runGit(['rev-parse', '--git-dir']);
     return true;
   } catch {
     return false;
@@ -151,11 +159,8 @@ export async function isGitRepository(): Promise<boolean> {
  */
 export async function getChangedFiles(): Promise<string[]> {
   try {
-    const statusMatrix = await getStatusMatrix();
-    const files = statusMatrix
-      .filter(([_, head, workdir, stage]) => head !== workdir || workdir !== stage)
-      .map(([filepath]) => filepath);
-    return [...new Set(files)];
+    const status = await getStatus();
+    return status.map((entry) => entry.file);
   } catch (error) {
     throw new Error(`Failed to get changed files: ${error}`);
   }
@@ -170,21 +175,14 @@ export async function getFileDiff(file: string): Promise<string> {
     let newContent = '';
 
     try {
-      const headCommit = await git.resolveRef({ fs, dir: process.cwd(), ref: 'HEAD' });
-      const { blob } = await git.readBlob({
-        fs,
-        dir: process.cwd(),
-        oid: headCommit,
-        filepath: file,
-      });
-      oldContent = new TextDecoder().decode(blob);
+      oldContent = await runGit(['show', `HEAD:${file}`]);
     } catch {
       // File is new, no HEAD version
       oldContent = '';
     }
 
     try {
-      newContent = await fs.readFile(file, 'utf-8');
+      newContent = await Bun.file(file).text();
     } catch {
       // File is deleted, no working version
       newContent = '';
@@ -197,22 +195,21 @@ export async function getFileDiff(file: string): Promise<string> {
 }
 
 /**
- * Get file status from cached status matrix
+ * Get file status from cached status
  */
 export async function getFileStatus(file: string): Promise<GitDiff['status']> {
   try {
-    const statusMatrix = await getStatusMatrix();
-    const statusRow = statusMatrix.find(([filepath]) => filepath === file);
+    const status = await getStatus();
+    const entry = status.find((e) => e.file === file);
 
-    if (!statusRow) {
+    if (!entry) {
       return 'modified';
     }
 
-    const [, head, workdir, stage] = statusRow;
-
-    if (head === 0) return 'added';
-    if (workdir === 0) return 'deleted';
-    if (head !== workdir || workdir !== stage) return 'modified';
+    // Check index (X) and worktree (Y) status
+    // A = added, D = deleted, ? = untracked
+    if (entry.index === 'A' || entry.index === '?' || entry.worktree === '?') return 'added';
+    if (entry.index === 'D' || entry.worktree === 'D') return 'deleted';
 
     return 'modified';
   } catch {

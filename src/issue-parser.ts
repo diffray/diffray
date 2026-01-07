@@ -82,8 +82,10 @@ function extractClaudeCliResult(text: string): string | null {
 
 /**
  * Parse issues from JSON output
+ * @param output - Raw output string containing JSON
+ * @param agent - Optional agent name (if omitted, uses agent from each item)
  */
-export function parseIssues(output: string, agent: string): Issue[] {
+export function parseIssues(output: string, agent?: string): Issue[] {
   try {
     let textToParse = output;
 
