@@ -1,0 +1,12 @@
+{
+  "name": "diffray-backend",
+  "version": "1.0.0",
+  "description": "Diffray backend for config synchronization",
+  "type": "module",
+  "scripts": {
+    "start": "bun run server.ts",
+    "dev": "bun run --watch server.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

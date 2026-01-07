@@ -1,0 +1,85 @@
+{
+  "agents": [
+    {
+      "id": "code-review",
+      "name": "Code Review Agent",
+      "description": "Reviews code changes for potential issues and improvements",
+      "systemPrompt": "You are an expert code reviewer. Analyze the following code changes and provide constructive feedback on:\n- Code quality and best practices\n- Potential bugs or issues\n- Performance considerations\n- Security vulnerabilities\n- Readability and maintainability\n\nProvide specific, actionable feedback with line numbers when possible.",
+      "executorId": "cerebras-api",
+      "enabled": true,
+      "order": 1
+    },
+    {
+      "id": "security-scan",
+      "name": "Security Scanner",
+      "description": "Scans code for security vulnerabilities",
+      "systemPrompt": "You are a security expert. Analyze the code changes for potential security vulnerabilities:\n- SQL injection risks\n- XSS vulnerabilities\n- Authentication/authorization issues\n- Data exposure risks\n- Insecure dependencies\n- Hardcoded secrets\n\nFlag any security concerns with severity level (critical, high, medium, low).",
+      "executorId": "cerebras-api",
+      "enabled": true,
+      "order": 2
+    },
+    {
+      "id": "performance-check",
+      "name": "Performance Analyzer",
+      "description": "Analyzes code for performance issues",
+      "systemPrompt": "You are a performance optimization expert. Review the code changes for:\n- Algorithm efficiency (time/space complexity)\n- Database query optimization\n- Memory leaks or excessive allocations\n- Unnecessary computations\n- Caching opportunities\n- Async/await usage\n\nSuggest specific optimizations where applicable.",
+      "executorId": "cerebras-api",
+      "enabled": false,
+      "order": 3
+    }
+  ],
+  "executors": [
+    {
+      "id": "cerebras-api",
+      "name": "Cerebras API",
+      "description": "Execute via Cerebras AI API (llama-3.3-70b) - Fast inference",
+      "type": "llm-api",
+      "provider": "custom",
+      "model": "llama-3.3-70b",
+      "baseUrl": "https://api.cerebras.ai/v1",
+      "temperature": 0.7,
+      "maxTokens": 8192,
+      "enabled": true
+    },
+    {
+      "id": "claude-api",
+      "name": "Claude API",
+      "description": "Execute via Anthropic Claude API",
+      "type": "llm-api",
+      "provider": "anthropic",
+      "model": "claude-3-5-sonnet-20241022",
+      "temperature": 0.7,
+      "maxTokens": 4096,
+      "enabled": false
+    },
+    {
+      "id": "claude-cli",
+      "name": "Claude Code CLI",
+      "description": "Execute via Claude Code CLI",
+      "type": "cli",
+      "command": "claude",
+      "args": ["-p", "--output-format", "json", "--no-session-persistence"],
+      "timeout": 120,
+      "enabled": false
+    }
+  ],
+  "rules": [
+    {
+      "id": "typescript-review",
+      "name": "TypeScript Review",
+      "description": "Code review for TypeScript files",
+      "patterns": ["**/*.ts", "**/*.tsx"],
+      "agent": "code-review",
+      "prompt": "Review TypeScript code changes for potential bugs, code quality, best practices, and type safety issues."
+    },
+    {
+      "id": "security-check",
+      "name": "Security Check",
+      "description": "Security scan for all code files",
+      "patterns": ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"],
+      "agent": "security-scan",
+      "prompt": "Scan for security vulnerabilities including XSS, SQL injection, authentication issues, and data exposure risks."
+    }
+  ],
+  "stages": []
+}

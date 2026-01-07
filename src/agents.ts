@@ -3,7 +3,7 @@
  */
 
 import type { Agent, AgentExecutor } from "./types";
-import { loadConfig } from "./config";
+import { loadConfig, getAgents, getExecutors, updateConfig } from "./config";
 import { log } from "./logger";
 import { getDefaultAgents } from "./agents/defaults";
 import { executorFactory } from "./executors/factory";
@@ -17,14 +17,14 @@ async function getDefaultExecutors(): Promise<AgentExecutor[]> {
 }
 
 /**
- * Load Agents from backend
+ * Load unified config from backend
  */
-export async function loadAgentsFromBackend(): Promise<Agent[]> {
+async function loadConfigFromBackend() {
   const config = await loadConfig();
 
   // Check if backend is enabled
   if (!config.backend.enabled || !config.backend.url) {
-    return getDefaultAgents();
+    return null;
   }
 
   try {
@@ -36,19 +36,33 @@ export async function loadAgentsFromBackend(): Promise<Agent[]> {
       headers["Authorization"] = `Bearer ${config.backend.apiKey}`;
     }
 
-    const response = await fetch(`${config.backend.url}/subagents`, {
+    const response = await fetch(`${config.backend.url}/config`, {
       headers,
     });
 
     if (response.ok) {
-      const subAgents = (await response.json()) as Agent[];
-      log.success(`Loaded ${subAgents.length} Agents from backend`);
-      return subAgents;
+      const backendConfig = await response.json();
+      log.success(`Loaded config from backend`);
+      return backendConfig;
     } else {
-      log.warn(`Backend returned ${response.status}, using defaults`);
+      log.warn(`Backend returned ${response.status}, using local config`);
     }
   } catch (error) {
-    log.warn("Failed to load Agents from backend, using defaults");
+    log.warn("Failed to load config from backend, using local config");
+  }
+
+  return null;
+}
+
+/**
+ * Load Agents from backend
+ */
+export async function loadAgentsFromBackend(): Promise<Agent[]> {
+  const backendConfig = await loadConfigFromBackend();
+
+  if (backendConfig && backendConfig.agents) {
+    log.success(`Loaded ${backendConfig.agents.length} Agents from backend`);
+    return backendConfig.agents;
   }
 
   return getDefaultAgents();
@@ -58,50 +72,25 @@ export async function loadAgentsFromBackend(): Promise<Agent[]> {
  * Load Executors from backend
  */
 export async function loadExecutorsFromBackend(): Promise<AgentExecutor[]> {
-  const config = await loadConfig();
+  const backendConfig = await loadConfigFromBackend();
 
-  // Check if backend is enabled
-  if (!config.backend.enabled || !config.backend.url) {
-    return getDefaultExecutors();
-  }
-
-  try {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-
-    if (config.backend.apiKey) {
-      headers["Authorization"] = `Bearer ${config.backend.apiKey}`;
-    }
-
-    const response = await fetch(`${config.backend.url}/executors`, {
-      headers,
-    });
-
-    if (response.ok) {
-      const executors = (await response.json()) as AgentExecutor[];
-      log.success(`Loaded ${executors.length} Executors from backend`);
-      return executors;
-    } else {
-      log.warn(`Backend returned ${response.status}, using defaults`);
-    }
-  } catch (error) {
-    log.warn("Failed to load Executors from backend, using defaults");
+  if (backendConfig && backendConfig.executors) {
+    log.success(`Loaded ${backendConfig.executors.length} Executors from backend`);
+    return backendConfig.executors;
   }
 
   return getDefaultExecutors();
 }
 
 /**
- * Save Agents to local cache
+ * Save Agents to unified config
  */
-export async function saveAgentsToCache(subAgents: Agent[]): Promise<void> {
-  const cacheFile = `${process.env.HOME}/.diffray/subagents.json`;
-  await Bun.write(cacheFile, JSON.stringify(subAgents, null, 2));
+export async function saveAgentsToCache(agents: Agent[]): Promise<void> {
+  await updateConfig({ agents });
 }
 
 /**
- * Load Agents from local cache
+ * @deprecated Use loadAgents() instead - now reads from unified config
  */
 export async function loadAgentsFromCache(): Promise<Agent[] | null> {
   try {
@@ -116,34 +105,32 @@ export async function loadAgentsFromCache(): Promise<Agent[] | null> {
 }
 
 /**
- * Load Agents (from cache or backend)
+ * Load Agents from unified config
  */
 export async function loadAgents(): Promise<Agent[]> {
-  // Try cache first
-  const cached = await loadAgentsFromCache();
-  if (cached) {
-    return cached;
+  const config = await loadConfig();
+  
+  // If no agents in config, try loading from backend and save to config
+  if (config.agents.length === 0) {
+    const agents = await loadAgentsFromBackend();
+    if (agents.length > 0) {
+      await updateConfig({ agents });
+    }
+    return agents;
   }
-
-  // Load from backend
-  const subAgents = await loadAgentsFromBackend();
-
-  // Save to cache
-  await saveAgentsToCache(subAgents);
-
-  return subAgents;
+  
+  return getAgents(config);
 }
 
 /**
- * Save Executors to local cache
+ * Save Executors to unified config
  */
 export async function saveExecutorsToCache(executors: AgentExecutor[]): Promise<void> {
-  const cacheFile = `${process.env.HOME}/.diffray/executors.json`;
-  await Bun.write(cacheFile, JSON.stringify(executors, null, 2));
+  await updateConfig({ executors });
 }
 
 /**
- * Load Executors from local cache
+ * @deprecated Use loadExecutors() instead - now reads from unified config
  */
 export async function loadExecutorsFromCache(): Promise<AgentExecutor[] | null> {
   try {
@@ -158,20 +145,19 @@ export async function loadExecutorsFromCache(): Promise<AgentExecutor[] | null> 
 }
 
 /**
- * Load Executors (from cache or backend)
+ * Load Executors from unified config
  */
 export async function loadExecutors(): Promise<AgentExecutor[]> {
-  // Try cache first
-  const cached = await loadExecutorsFromCache();
-  if (cached) {
-    return cached;
+  const config = await loadConfig();
+  
+  // If no executors in config, use defaults from factory
+  if (config.executors.length === 0) {
+    const executors = await getDefaultExecutors();
+    if (executors.length > 0) {
+      await updateConfig({ executors });
+    }
+    return executors;
   }
-
-  // Load from backend
-  const executors = await loadExecutorsFromBackend();
-
-  // Save to cache
-  await saveExecutorsToCache(executors);
-
-  return executors;
+  
+  return getExecutors(config);
 }
