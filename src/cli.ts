@@ -42,6 +42,7 @@ import {
   updateRulePrompt,
   testRule,
 } from "./commands/rules";
+import { showCache, clearCache, explainCache } from "./commands/cache";
 import { Pipeline } from "./pipeline";
 import { loadAgents, loadExecutors } from "./agents";
 import { log } from "./logger";
@@ -403,6 +404,34 @@ export async function main() {
     }
   }
 
+  // Handle cache commands
+  if (command === "cache") {
+    const subcommand = args[1];
+
+    switch (subcommand) {
+      case "show":
+        await showCache();
+        return;
+      case "clear":
+        await clearCache();
+        return;
+      case "explain":
+        await explainCache();
+        return;
+      default:
+        log.plain("💾 diffray Cache Commands\n");
+        log.plain("Usage: diffray cache <command>\n");
+        log.plain("Commands:");
+        log.plain("  show              Show cache information");
+        log.plain("  clear             Clear all cache files");
+        log.plain("  explain           Explain what the cache is and when to clear it");
+        log.plain("\nExample:");
+        log.plain("  diffray cache show");
+        log.plain("  diffray cache clear");
+        return;
+    }
+  }
+
   // Handle help command
   if (command === "help" || command === "--help" || command === "-h") {
     showHelp();
@@ -611,6 +640,7 @@ function showHelp() {
   log.plain("  rules <cmd>       Manage matching rules");
   log.plain("  config <cmd>      Manage configuration");
   log.plain("  mcp <cmd>         Manage MCP servers");
+  log.plain("  cache <cmd>       Manage cache");
   log.plain("  help              Show this help message");
   log.newline();
   log.plain("Options:");
@@ -635,4 +665,6 @@ function showHelp() {
   log.plain("  diffray rules list                   # List all rules");
   log.plain("  diffray config show                  # Show configuration");
   log.plain("  diffray mcp list                     # List MCP servers");
+  log.plain("  diffray cache show                   # Show cache information");
+  log.plain("  diffray cache clear                  # Clear cache");
 }
