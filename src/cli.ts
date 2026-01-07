@@ -1,6 +1,14 @@
 import { defineCommand } from 'citty';
 import packageJson from '../package.json';
-import { isGitRepository, getAllDiffs, getLastCommitDiffs, getCommitDiffs } from './git';
+import {
+  isGitRepository,
+  getAllDiffs,
+  getLastCommitDiffs,
+  getCommitDiffs,
+  ensureAtHead,
+  hasUncommittedChanges,
+  checkoutRef,
+} from './git';
 import { loadConfig } from './config';
 import { Pipeline } from './pipeline';
 import { loadAgents } from './agents';
@@ -61,6 +69,9 @@ async function runReview(args: {
   let diffs;
   let sourceLabel = '';
 
+  // Track if we need to restore original branch after review
+  let originalRef: string | null = null;
+
   // Priority: explicit base/head > uncommitted changes > last commit
   if (base) {
     // Explicit comparison mode
@@ -68,11 +79,32 @@ async function runReview(args: {
     if (!json) {
       log.info(`Comparing ${base}...${headRef}`);
     }
+
+    // Ensure working directory is at head ref so CLI tools can read full files
+    if (await hasUncommittedChanges()) {
+      if (!json) {
+        log.warn('Uncommitted changes detected - cannot checkout to head ref');
+        log.info('CLI tools will only see diff context, not full files');
+      }
+    } else {
+      const checkoutResult = await ensureAtHead(headRef);
+      if (checkoutResult.checkoutNeeded) {
+        originalRef = checkoutResult.originalRef;
+        if (!json) {
+          log.info(`Checked out to ${headRef} for full file access`);
+        }
+      }
+    }
+
     diffs = await getCommitDiffs(base, headRef);
     sourceLabel = ` (${base}...${headRef})`;
 
     if (diffs.length === 0) {
       log.success('No changes between commits');
+      // Restore original ref if we checked out
+      if (originalRef) {
+        await checkoutRef(originalRef);
+      }
       return;
     }
   } else {
@@ -208,10 +240,10 @@ async function runReview(args: {
       );
 
       const parts: string[] = [];
-      if (counts.error) parts.push(`${counts.error} error(s)`);
-      if (counts.warning) parts.push(`${counts.warning} warning(s)`);
-      if (counts.info) parts.push(`${counts.info} info`);
-      if (counts.suggestion) parts.push(`${counts.suggestion} suggestion(s)`);
+      if (counts.critical) parts.push(`${counts.critical} critical`);
+      if (counts.high) parts.push(`${counts.high} high`);
+      if (counts.medium) parts.push(`${counts.medium} medium`);
+      if (counts.low) parts.push(`${counts.low} low`);
 
       log.chart(`${filteredIssues.length} issue(s): ${parts.join(', ')}`);
 
@@ -229,6 +261,14 @@ async function runReview(args: {
     }
 
     log.newline();
+  }
+
+  // Restore original branch if we checked out
+  if (originalRef) {
+    await checkoutRef(originalRef);
+    if (!json) {
+      log.info(`Restored to ${originalRef}`);
+    }
   }
 }
 
@@ -248,7 +288,7 @@ const reviewCmd = defineCommand({
     },
     severity: {
       type: 'string',
-      description: 'Filter issues by severity (comma-separated: error,warning,info,suggestion)',
+      description: 'Filter issues by severity (comma-separated: critical,high,medium,low)',
     },
     base: {
       type: 'string',

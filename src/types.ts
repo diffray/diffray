@@ -19,7 +19,12 @@ export interface GitDiff {
 /**
  * Issue severity levels
  */
-export type IssueSeverity = 'error' | 'warning' | 'info' | 'suggestion';
+export type IssueSeverity = 'critical' | 'high' | 'medium' | 'low';
+
+/**
+ * Issue categories
+ */
+export type IssueCategory = 'security' | 'performance' | 'bug' | 'quality' | 'style' | 'docs';
 
 /**
  * Code issue found by an agent
@@ -29,6 +34,7 @@ export interface Issue {
   lineStart: number;
   lineEnd: number;
   severity: IssueSeverity;
+  category: IssueCategory;
   shortDescription: string;
   fullDescription: string;
   suggestion?: string;
@@ -90,10 +96,11 @@ export interface LLMAPIAgentExecutor extends BaseAgentExecutor {
  */
 export interface CLIAgentExecutor extends BaseAgentExecutor {
   type: 'cli';
-  command: string; // e.g., "auggie", "claude"
+  command?: string; // e.g., "auggie", "claude"
   args?: string[]; // Additional arguments
   env?: Record<string, string>; // Environment variables
   timeout?: number; // Timeout in seconds
+  model?: string; // Model for CLI tools like claude-cli
 }
 
 /**
@@ -120,6 +127,7 @@ export interface ExecutionContext {
   input: string; // Input data (diffs)
   systemPrompt: string; // System prompt from Agent
   verbose?: boolean; // Verbose mode flag
+  quiet?: boolean; // Suppress output (for JSON mode)
 }
 
 /**

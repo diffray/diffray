@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Common Commands
 - `bun run dev` - Run CLI in development mode
 - `bun test` - Run all tests
-- `bun test <filename>` - Run specific test file
+- `bun test <filename>` - Run specific test file (e.g., `bun test md-loader`)
 - `bun build` - Build standalone binary to `dist/diffray`
 - `bun run ts-check` - TypeScript type checking
 - `bun link` - Link globally for testing
@@ -14,43 +14,105 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `bun run format` - Format with Prettier
 
 ## Architecture Overview
-The project is a pipeline-based code review system:
-1. **Entry Point**: `bin/diffray.ts` → `src/cli.ts` using citty CLI framework
-2. **Pipeline**: `src/pipeline.ts` - Orchestrates stages with agents and executors
-3. **Stages** (in `src/stages/`): Sequential pipeline phases
-   - load-rules → match-rules → execute-agents → aggregate-results → deduplication → validation
-4. **Agents**: Code review specialists defined in Markdown files (`src/defaults/agents/*.md`)
-5. **Executors**: How agents run - LLM APIs (Cerebras) or CLI tools (claude-cli)
-6. **Rules**: Match files to agents using glob patterns (`src/defaults/rules/*.md`)
 
-## Key Types (src/types.ts)
-- `GitDiff` - File change with diff content
-- `Agent` - Review agent with systemPrompt and executor reference
-- `AgentExecutor` - Execution backend (LLM API, CLI, or MCP)
-- `Rule` - Maps glob patterns to agents
-- `Stage` - Pipeline phase with execute function
-- `Issue` - Code issue with severity, file, line range, description
+### Pipeline Flow
+```
+Git Diffs → Pipeline → Stages → Issues
 
-## Configuration
-- Config stored at `~/.diffray/config.json`
-- Managed via `diffray config` commands
-- Agents/rules cached from MD files via `diffray agents sync` / `diffray rules sync`
-- Schema validation with Zod (`src/config.ts`)
+Stages (sequential):
+  1. load-rules     - Load rules from MD files, resolve agents
+  2. match-rules    - Match files to rules using glob patterns
+  3. execute-agents - Run agents in parallel via executors
+  4. aggregate      - Collect results from all agents
+  5. deduplication  - Remove duplicate issues
+  6. validation     - LLM validates issues, filters false positives
+```
+
+### Core Components
+
+**Entry Point**: `bin/diffray.ts` → `src/cli.ts` (citty CLI framework)
+
+**Pipeline** (`src/pipeline.ts`):
+- Orchestrates stages sequentially
+- Manages `PipelineContext` passed between stages
+- Registers agents and executors
+
+**Stages** (`src/stages/`):
+- Each stage implements `Stage` interface with `execute(context)` method
+- Stages mutate `PipelineContext` (add matchedRules, results, issues)
+
+**Agents** (`src/defaults/agents/*.md`):
+- Defined in Markdown with YAML frontmatter (ID, Order, Enabled, Executor)
+- Loaded via `src/agents/md-loader.ts`
+- Cached in config, sync with `diffray agents sync`
+
+**Executors** (`src/executors.ts`):
+- Types: `llm-api` (HTTP API), `cli` (subprocess)
+- Factory pattern: `executorFactory.executeAgent(context)`
+- Built-in executors:
+  - `cerebras-api` - Cerebras AI API (requires `CEREBRAS_API_KEY`)
+  - `claude-cli` - Claude Code CLI with streaming support
+  - `test-cli` - Stub for testing
+
+**Claude CLI Executor**:
+- Uses `claude -p --output-format stream-json --verbose` for streaming
+- Shows reasoning with `💭` prefix (unless `--quiet`)
+- In `--verbose` mode shows additional JSON:
+  - `📋` - System init (tools, session, model)
+  - `🔧` - Tool use messages
+  - `📊` - Result metadata (cost, usage, duration)
+- Default model: `sonnet`, timeout: 120s
+- Can use Read/Grep tools to gather context before answering
+
+**Rules** (`src/defaults/rules/*.md`):
+- Map glob patterns to agents
+- Contain additional prompts for matched files
+- Loaded via `src/md-loader.ts`
+
+### Data Flow
+```
+GitDiff[] → MatchedRule[] → AgentResult[] → Issue[]
+              (files +        (raw output)    (parsed,
+               agent +                         validated)
+               prompt)
+```
+
+### Issue Structure
+```typescript
+interface Issue {
+  file: string;
+  lineStart: number;
+  lineEnd: number;
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  category: 'security' | 'performance' | 'bug' | 'quality' | 'style' | 'docs';
+  shortDescription: string;
+  fullDescription: string;
+  suggestion?: string;
+  agent: string;
+}
+```
+
+## Key Files
+- `src/types.ts` - All TypeScript interfaces
+- `src/config.ts` - Config schema (Zod), load/save to `~/.diffray/config.json`
+- `src/issue-parser.ts` - Parse JSON issues from agent output
+- `src/issue-formatter.ts` - Format issues for terminal/JSON output
+- `src/defaults/prompts/output-format.md` - JSON format agents must return
 
 ## CLI Subcommands
 - `diffray review` - Execute code review pipeline
-  - `--base <ref>` - Base commit/branch to compare from (e.g., `main`, `HEAD~3`)
-  - `--head <ref>` - Head commit/branch to compare to (default: `HEAD`)
-  - `--severity <list>` - Filter by severity (comma-separated: error,warning,info,suggestion)
-  - `--json` - Output results in JSON format
-  - `--verbose` - Show detailed output
-  - `--skip-validation` - Skip validation stage (show all issues without LLM filtering)
-  - Without `--base`: reviews uncommitted changes, or last commit if working tree is clean
-- `diffray config` - Manage configuration
-- `diffray agents` - List/show/sync agents
-- `diffray executors` - Manage executors
-- `diffray rules` - Manage file-to-agent rules
-- `diffray cache` - Cache management
+  - `--base <ref>` - Base commit/branch (e.g., `main`, `HEAD~3`)
+  - `--head <ref>` - Head commit/branch (default: `HEAD`)
+    - When `--base` specified with no uncommitted changes, temporarily checks out `--head` ref for CLI tools, then restores original branch
+  - `--severity <list>` - Filter by severity (comma-separated: critical,high,medium,low)
+  - `--json` - Output results in JSON format (quiet mode, no streaming)
+  - `--verbose` - Show raw JSON stream (📋 system, 🔧 tools, 📊 results)
+  - `--quiet` - Hide streaming output (💭 reasoning)
+  - `--skip-validation` - Skip validation stage
+  - Without `--base`: reviews uncommitted changes, or last commit if clean
+- `diffray agents sync` - Reload agents from MD files
+- `diffray rules sync` - Reload rules from MD files
+- `diffray executors list/enable/disable` - Manage executors
 
 ## Technology
 - Runtime: Bun
@@ -59,9 +121,8 @@ The project is a pipeline-based code review system:
 - Validation: Zod schemas
 - Git Operations: isomorphic-git (`src/git.ts`)
 
-## Development Patterns
-- ES Modules with bundler moduleResolution
-- No `.js` extensions needed in imports (bundler mode)
-- Markdown-based configuration for agents and rules
-- Simplified executor system (`src/executors.ts`)
-- Registry pattern for agents (`src/agents/registry.ts`)
+## Development Notes
+- ES Modules with bundler moduleResolution (no `.js` extensions needed)
+- Markdown frontmatter parsed with custom regex (see `md-loader.ts`)
+- Config stored at `~/.diffray/config.json`
+- Agents reference prompts via `../prompts/output-format.md` in their systemPrompt
