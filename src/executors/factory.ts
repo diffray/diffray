@@ -12,8 +12,28 @@ import type {
 } from "../types";
 import { BaseExecutor } from "./base/executor.js";
 
+// Import all executors explicitly for reliability
+import { ClaudeCLIExecutor } from "./cli/claude-cli.js";
+import { AuggieCLIExecutor } from "./cli/auggie-cli.js";
+import { DefaultCLIExecutor } from "./cli/default-cli.js";
+import { ClaudeAPIExecutor } from "./api/claude-api.js";
+import { OpenAIAPIExecutor } from "./api/openai-api.js";
+import { CerebrasAPIExecutor } from "./api/cerebras-api.js";
+import { CustomMCPExecutor } from "./mcp/custom-mcp.js";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// List of all executor classes
+const EXECUTOR_CLASSES = [
+  ClaudeCLIExecutor,
+  AuggieCLIExecutor,
+  DefaultCLIExecutor,
+  ClaudeAPIExecutor,
+  OpenAIAPIExecutor,
+  CerebrasAPIExecutor,
+  CustomMCPExecutor,
+];
 
 /**
  * Executor Factory - factory for creating and managing executors
@@ -23,55 +43,24 @@ export class ExecutorFactory {
   private initialized = false;
 
   /**
-   * Auto-discover and register all executors from cli/, api/, mcp/ directories
+   * Auto-discover and register all executors
+   * Uses explicit imports for reliability in compiled binaries
    */
   async autoDiscover(): Promise<void> {
     if (this.initialized) {
       return;
     }
 
-    // Scan executor directories
-    const patterns = [
-      path.join(__dirname, "cli", "**", "*.ts"),
-      path.join(__dirname, "cli", "**", "*.js"),
-      path.join(__dirname, "api", "**", "*.ts"),
-      path.join(__dirname, "api", "**", "*.js"),
-      path.join(__dirname, "mcp", "**", "*.ts"),
-      path.join(__dirname, "mcp", "**", "*.js"),
-    ];
-
-    for (const pattern of patterns) {
+    // Register all executor classes
+    for (const ExecutorClass of EXECUTOR_CLASSES) {
       try {
-        const files = await glob(pattern, { absolute: true });
-
-        for (const file of files) {
-          try {
-            // Import module
-            const module = await import(file);
-
-            // Find executor class (convention: class ending with 'Executor')
-            const ExecutorClass = Object.values(module).find((exported: any) => {
-              return (
-                typeof exported === "function" &&
-                exported.prototype instanceof BaseExecutor
-              );
-            }) as any;
-
-            if (ExecutorClass) {
-              // Create instance with no config to get defaults
-              const instance = new ExecutorClass();
-              const config = instance.getDefaultConfig();
-
-              // Register with default config
-              this.register(instance, config);
-            }
-          } catch (error) {
-            // Skip files that fail to import
-            console.warn(`Failed to load executor from ${file}:`, error);
-          }
-        }
+        const instance = new ExecutorClass();
+        const config = instance.getDefaultConfig();
+        this.register(instance, config);
       } catch (error) {
-        // Skip patterns that don't match any files
+        if (process.env.DEBUG) {
+          console.warn(`Failed to register executor ${ExecutorClass.name}:`, error);
+        }
       }
     }
 

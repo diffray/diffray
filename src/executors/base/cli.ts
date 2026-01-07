@@ -14,10 +14,19 @@ export abstract class BaseCLIExecutor extends BaseExecutor {
   protected cliConfig: CLIAgentExecutor;
 
   constructor(userConfig?: Partial<CLIAgentExecutor>) {
-    // Get default config from concrete executor
-    const defaultConfig = (null as any as BaseCLIExecutor).getDefaultConfig.call({
-      getDefaultConfig: () => (null as any as BaseCLIExecutor).getDefaultConfig.call(new (this.constructor as any)())
-    }) as CLIAgentExecutor;
+    // Temporary placeholder config for super()
+    const tempConfig = {
+      id: "temp",
+      name: "temp",
+      description: "temp",
+      type: "cli" as const,
+      command: "echo",
+      enabled: false,
+    };
+    super(tempConfig);
+
+    // Get actual default config
+    const defaultConfig = this.getDefaultConfig();
 
     // Merge with user config
     const mergedConfig = {
@@ -25,7 +34,8 @@ export abstract class BaseCLIExecutor extends BaseExecutor {
       ...userConfig,
     } as CLIAgentExecutor;
 
-    super(mergedConfig);
+    // Update config
+    this.config = mergedConfig;
     this.cliConfig = mergedConfig;
   }
 

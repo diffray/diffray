@@ -13,9 +13,20 @@ export abstract class BaseAPIExecutor extends BaseExecutor {
   protected apiConfig: LLMAPIAgentExecutor;
 
   constructor(userConfig?: Partial<LLMAPIAgentExecutor>) {
-    // Get default config from concrete executor (workaround for abstract method)
-    const instance = new (this.constructor as any)();
-    const defaultConfig = instance.getDefaultConfig() as LLMAPIAgentExecutor;
+    // Temporary placeholder config for super()
+    const tempConfig = {
+      id: "temp",
+      name: "temp",
+      description: "temp",
+      type: "llm-api" as const,
+      provider: "custom" as const,
+      model: "temp",
+      enabled: false,
+    };
+    super(tempConfig);
+
+    // Get actual default config
+    const defaultConfig = this.getDefaultConfig();
 
     // Merge with user config
     const mergedConfig = {
@@ -23,7 +34,8 @@ export abstract class BaseAPIExecutor extends BaseExecutor {
       ...userConfig,
     } as LLMAPIAgentExecutor;
 
-    super(mergedConfig);
+    // Update config
+    this.config = mergedConfig;
     this.apiConfig = mergedConfig;
   }
 
