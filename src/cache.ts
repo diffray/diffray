@@ -84,7 +84,6 @@ export const CACHE_KEYS = {
 
   // Prompts (executors)
   OUTPUT_FORMAT: 'prompt:output-format',
-  CLAUDE_CLI_SUFFIX: 'prompt:claude-cli-suffix',
   VALIDATION_PROMPT: 'prompt:validation',
 
   // Git

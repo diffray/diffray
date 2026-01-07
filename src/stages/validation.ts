@@ -16,6 +16,8 @@ import { parseIssues } from '../issue-parser';
 import { log, Spinner } from '../logger';
 import { executorFactory } from '../executors';
 import { loadConfig } from '../config';
+import { getCached, CACHE_KEYS } from '../cache';
+import { createLimiter } from '../concurrency';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -31,9 +33,7 @@ function chunk<T>(array: T[], size: number): T[][] {
   return chunks;
 }
 
-// ============ Validation Prompt (cached) ============
-
-let validationPromptCache: string | null = null;
+// ============ Validation Prompt (using unified cache) ============
 
 const DEFAULT_VALIDATION_PROMPT = `You are a code review validation agent. Your task is to validate issues found by other agents and filter out false positives.
 
@@ -41,15 +41,15 @@ You may include your analysis and reasoning, but MUST include a JSON array of va
 Be strict but fair. Only filter out clear false positives.`;
 
 async function loadValidationPrompt(): Promise<string> {
-  if (validationPromptCache) return validationPromptCache;
-  try {
-    const __filename = fileURLToPath(import.meta.url);
-    const promptPath = join(__filename, '..', '..', 'defaults', 'prompts', 'validation.md');
-    validationPromptCache = await Bun.file(promptPath).text();
-    return validationPromptCache;
-  } catch {
-    return DEFAULT_VALIDATION_PROMPT;
-  }
+  return getCached(CACHE_KEYS.VALIDATION_PROMPT, async () => {
+    try {
+      const __filename = fileURLToPath(import.meta.url);
+      const promptPath = join(__filename, '..', '..', 'defaults', 'prompts', 'validation.md');
+      return await Bun.file(promptPath).text();
+    } catch {
+      return DEFAULT_VALIDATION_PROMPT;
+    }
+  });
 }
 
 
@@ -132,10 +132,10 @@ export function createValidationStage(): Stage {
         };
       }
 
-      // Apply model override if configured
+      // Apply model override if configured (only for executors that support it)
       let finalExecutor: AgentExecutor = executor;
-      if (config.validation?.model) {
-        finalExecutor = { ...executor, model: config.validation.model } as AgentExecutor;
+      if (config.validation?.model && (executor.type === 'llm-api' || executor.type === 'cli')) {
+        finalExecutor = { ...executor, model: config.validation.model };
       }
 
       // Load validation prompt from file
@@ -145,8 +145,11 @@ export function createValidationStage(): Stage {
       const batches = chunk(allIssues, VALIDATION_BATCH_SIZE);
       const needsBatching = batches.length > 1;
 
-      // Get model from executor (type-safe access)
-      const executorModel = 'model' in finalExecutor ? finalExecutor.model : undefined;
+      // Get model from executor
+      const executorModel =
+        finalExecutor.type === 'llm-api' || finalExecutor.type === 'cli'
+          ? finalExecutor.model
+          : undefined;
 
       if (!context.quiet) {
         if (needsBatching) {
@@ -159,115 +162,130 @@ export function createValidationStage(): Stage {
         }
       }
 
-      // Create spinner for validation (only if not in quiet mode)
-      const spinner: Spinner | null = context.quiet
-        ? null
-        : new Spinner(`Validating ${allIssues.length} issue(s)...`);
+      // Create concurrency limiter
+      const limit = createLimiter(context.concurrency);
 
       try {
-        // Start spinner
-        if (spinner) {
-          spinner.start();
-        }
+        // Validate all batches in parallel with concurrency limit
+        const batchResults = await Promise.all(
+          batches.map((batch, batchIdx) =>
+            limit(async () => {
+              const batchSpinner: Spinner | null = context.quiet
+                ? null
+                : new Spinner(
+                    needsBatching
+                      ? `Validating batch ${batchIdx + 1}/${batches.length} (${batch.length} issues)...`
+                      : `Validating ${batch.length} issue(s)...`
+                  );
 
-        // Validate all batches
-        const allValidatedIssues: Issue[] = [];
+              try {
+                batchSpinner?.start();
 
-        for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
-          const batch = batches[batchIdx]!;
+                // Convert batch to JSON
+                const issuesJson = JSON.stringify(batch, null, 2);
 
-          // Update spinner for batch progress
-          if (spinner && needsBatching) {
-            spinner.update(
-              `Validating batch ${batchIdx + 1}/${batches.length} (${batch.length} issues)...`
-            );
-          }
+                // Create a dummy Agent for validation
+                const validationAgent: Agent = {
+                  id: 'validation-agent',
+                  name: 'Validation Agent',
+                  description: 'Validates issues found by other agents',
+                  systemPrompt: validationPrompt,
+                  enabled: true,
+                  order: 999,
+                  executor: finalExecutor.id,
+                };
 
-          // Convert batch to JSON
-          const issuesJson = JSON.stringify(batch, null, 2);
+                // Create execution context
+                const execContext: ExecutionContext = {
+                  agent: validationAgent,
+                  executor: finalExecutor,
+                  input: issuesJson,
+                  systemPrompt: validationPrompt,
+                  verbose: context.verbose,
+                  quiet: context.quiet,
+                };
 
-          // Create a dummy Agent for validation
-          const validationAgent: Agent = {
-            id: 'validation-agent',
-            name: 'Validation Agent',
-            description: 'Validates issues found by other agents',
-            systemPrompt: validationPrompt,
-            enabled: true,
-            order: 999,
-            executor: finalExecutor.id,
+                if (context.verbose && !context.quiet) {
+                  log.plain(
+                    `\nValidation prompt${needsBatching ? ` (batch ${batchIdx + 1}/${batches.length})` : ''}:`
+                  );
+                  log.plain(`   Executor: ${finalExecutor.name}`);
+                  log.plain(`   Issues to validate: ${batch.length}`);
+                  log.plain('─'.repeat(80));
+                  log.plain(`${validationPrompt}\n\n# Input:\n<issues JSON ${issuesJson.length} chars>`);
+                  log.plain('─'.repeat(80));
+                  log.newline();
+                }
+
+                // Execute validation for this batch
+                const result = await executorFactory.executeAgent(execContext);
+
+                if (!result.success) {
+                  batchSpinner?.fail(
+                    `Validation failed${needsBatching ? ` (batch ${batchIdx + 1})` : ''}: ${result.error}`
+                  );
+                  return { success: false, issues: [], error: result.error };
+                }
+
+                // Parse validated issues from this batch (no agent override, preserve original)
+                const batchValidatedIssues = parseIssues(result.output);
+
+                batchSpinner?.succeed(
+                  needsBatching
+                    ? `Validated batch ${batchIdx + 1}/${batches.length} (${batchValidatedIssues.length} valid)`
+                    : `Validated ${batchValidatedIssues.length} issue(s)`
+                );
+
+                return { success: true, issues: batchValidatedIssues, error: undefined };
+              } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                batchSpinner?.fail(`Validation error (batch ${batchIdx + 1}): ${errorMessage}`);
+                return { success: false, issues: [], error: errorMessage };
+              } finally {
+                batchSpinner?.stop();
+              }
+            })
+          )
+        );
+
+        // Check for failures
+        const failures = batchResults.filter((r) => !r.success);
+        if (failures.length > 0) {
+          const errorMessages = failures.map((f) => f.error).filter(Boolean);
+          return {
+            stageId: 'validation',
+            stageName: 'Validation',
+            success: false,
+            duration: Date.now() - startTime,
+            error: errorMessages.join('; '),
           };
-
-          // Create execution context
-          const execContext: ExecutionContext = {
-            agent: validationAgent,
-            executor: finalExecutor,
-            input: issuesJson,
-            systemPrompt: validationPrompt,
-            verbose: context.verbose,
-            quiet: context.quiet,
-          };
-
-          if (context.verbose && !context.quiet) {
-            log.plain(
-              `\nValidation prompt${needsBatching ? ` (batch ${batchIdx + 1}/${batches.length})` : ''}:`
-            );
-            log.plain(`   Executor: ${finalExecutor.name}`);
-            log.plain(`   Issues to validate: ${batch.length}`);
-            log.plain('─'.repeat(80));
-            log.plain(`${validationPrompt}\n\n# Input:\n<issues JSON ${issuesJson.length} chars>`);
-            log.plain('─'.repeat(80));
-            log.newline();
-          }
-
-          // Execute validation for this batch
-          const result = await executorFactory.executeAgent(execContext);
-
-          if (!result.success) {
-            if (spinner) {
-              spinner.fail(
-                `Validation failed${needsBatching ? ` (batch ${batchIdx + 1})` : ''}: ${result.error}`
-              );
-            }
-            return {
-              stageId: 'validation',
-              stageName: 'Validation',
-              success: false,
-              duration: Date.now() - startTime,
-              error: result.error,
-            };
-          }
-
-          // Parse validated issues from this batch (no agent override, preserve original)
-          const batchValidatedIssues = parseIssues(result.output);
-          allValidatedIssues.push(...batchValidatedIssues);
         }
 
         // Merge all validated issues
-        const validatedIssues = allValidatedIssues;
+        const validatedIssues = batchResults.flatMap((r) => r.issues);
 
         // Update results with validated issues
+        // Note: agent excluded from key because parseIssues may not preserve it
         const validatedIssueSet = new Set(
           validatedIssues.map(
-            (issue) => `${issue.file}:${issue.lineStart}:${issue.lineEnd}:${issue.agent}`
+            (issue) => `${issue.file}:${issue.lineStart}:${issue.lineEnd}`
           )
         );
 
         context.results.forEach((result) => {
           result.issues = result.issues.filter((issue) => {
-            const key = `${issue.file}:${issue.lineStart}:${issue.lineEnd}:${issue.agent}`;
+            const key = `${issue.file}:${issue.lineStart}:${issue.lineEnd}`;
             return validatedIssueSet.has(key);
           });
         });
 
         const validCount = validatedIssues.length;
         const invalidCount = allIssues.length - validCount;
-
-        // Stop spinner with success message
         const duration = Date.now() - startTime;
-        if (spinner) {
-          spinner.succeed(
-            `Validation complete: ${validCount} valid, ${invalidCount} filtered out (${duration}ms)`
-          );
+
+        // Log final summary
+        if (!context.quiet) {
+          log.done(`Validation complete: ${validCount} valid, ${invalidCount} filtered out (${duration}ms)`);
         }
 
         return {
@@ -278,7 +296,9 @@ export function createValidationStage(): Stage {
         };
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        spinner?.fail(`Validation error: ${errorMessage}`);
+        if (!context.quiet) {
+          log.error(`Validation error: ${errorMessage}`);
+        }
         return {
           stageId: 'validation',
           stageName: 'Validation',
@@ -286,8 +306,6 @@ export function createValidationStage(): Stage {
           duration: Date.now() - startTime,
           error: errorMessage,
         };
-      } finally {
-        spinner?.stop();
       }
     },
   };

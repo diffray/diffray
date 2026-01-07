@@ -6,7 +6,7 @@ import {
   executeAgent,
   executorFactory,
 } from './executors';
-import type { ExecutionContext, Agent, AgentExecutor } from './types';
+import type { ExecutionContext, Agent, AgentExecutor, LLMAPIAgentExecutor, CLIAgentExecutor } from './types';
 
 describe('Executors', () => {
   describe('getExecutor', () => {
@@ -119,7 +119,7 @@ describe('Executors', () => {
   describe('executor.getInfo', () => {
     test('cerebras-api should return correct info', () => {
       const executor = getExecutor('cerebras-api');
-      const info = executor?.getInfo();
+      const info = executor?.getInfo() as LLMAPIAgentExecutor;
 
       expect(info?.id).toBe('cerebras-api');
       expect(info?.name).toBe('cerebras-api');
@@ -130,7 +130,7 @@ describe('Executors', () => {
 
     test('claude-cli should return correct info', () => {
       const executor = getExecutor('claude-cli');
-      const info = executor?.getInfo();
+      const info = executor?.getInfo() as CLIAgentExecutor;
 
       expect(info?.id).toBe('claude-cli');
       expect(info?.name).toBe('claude-cli');
@@ -141,7 +141,7 @@ describe('Executors', () => {
 
     test('test-cli should return correct info', () => {
       const executor = getExecutor('test-cli');
-      const info = executor?.getInfo();
+      const info = executor?.getInfo() as CLIAgentExecutor;
 
       expect(info?.id).toBe('test-cli');
       expect(info?.name).toBe('test-cli');
@@ -188,7 +188,7 @@ describe('Executors', () => {
       expect(result.agentId).toBe('test-agent');
       expect(result.agentName).toBe('Test Agent');
       expect(result.executor).toBe('test-cli');
-      expect(result.output).toBe('[]');
+      expect(result.output.trim()).toBe('[]');
       expect(result.duration).toBeGreaterThan(0);
     });
 
@@ -199,7 +199,7 @@ describe('Executors', () => {
       const result = await executeAgent(ctx);
 
       expect(result.success).toBe(true);
-      expect(result.output).toBe('[]');
+      expect(result.output.trim()).toBe('[]');
     });
 
     test('should include prompt in result', async () => {
