@@ -193,13 +193,15 @@ export function createExecuteAgentsStage(): Stage {
             // Add all issues to context
             context.issues.push(...allIssues);
 
+            const batchSuccess = batchResults.every((batchResult) => batchResult.success);
+
             // Create combined AgentResult
             const agentResult: AgentResult = {
               subAgentId: subAgent.id,
               subAgentName: subAgent.name,
               executorId: subAgent.executorId,
               executorName: executorFactory.getExecutor(subAgent.executorId)?.getInfo().name || "unknown",
-              success: true,
+              success: batchSuccess,
               output: `Processed ${batches.length} batch(es), found ${allIssues.length} issue(s)`,
               duration: totalDuration,
               issues: allIssues,
@@ -233,6 +235,7 @@ export function createExecuteAgentsStage(): Stage {
       );
 
       const successCount = results.filter((r) => r?.success).length;
+      const failureCount = results.length - successCount;
       if (!context.quiet) {
         log.sync(`Completed: ${successCount}/${enabledSubAgents.length} succeeded`);
       }
@@ -240,10 +243,9 @@ export function createExecuteAgentsStage(): Stage {
       return {
         stageId: "execute-agents",
         stageName: "Execute SubAgents",
-        success: true,
+        success: failureCount === 0,
         duration: Date.now() - startTime,
       };
     },
   };
 }
-

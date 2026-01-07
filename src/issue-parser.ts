@@ -68,6 +68,8 @@ function parseIssueBlock(block: string, agentId: string, agentName: string): Iss
       shortDescription = line.substring(6).trim();
     } else if (line.startsWith("DESCRIPTION:")) {
       fullDescription = line.substring(12).trim();
+    } else if (line.startsWith("FULL:")) {
+      fullDescription = line.substring(5).trim();
     } else if (line.startsWith("SUGGESTION:")) {
       suggestion = line.substring(11).trim();
     }
@@ -128,12 +130,13 @@ function parseIssueBlock(block: string, agentId: string, agentName: string): Iss
 export function parseIssuesFromJSON(output: string, agentId: string, agentName: string): Issue[] {
   try {
     const data = JSON.parse(output);
-    
-    if (!data.issues || !Array.isArray(data.issues)) {
+
+    const issues = Array.isArray(data) ? data : data.issues;
+    if (!Array.isArray(issues)) {
       return [];
     }
 
-    return data.issues.map((item: any) => ({
+    return issues.map((item: any) => ({
       file: item.file || "",
       lineStart: item.lineStart || item.line || 0,
       lineEnd: item.lineEnd || item.lineStart || item.line || 0,
@@ -164,4 +167,3 @@ export function parseIssuesAuto(output: string, agentId: string, agentName: stri
   // Try structured format
   return parseIssues(output, agentId, agentName);
 }
-

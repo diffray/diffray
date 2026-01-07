@@ -13,21 +13,25 @@ export function getDefaultSubAgents(): SubAgent[] {
       id: "code-review",
       name: "Code Review",
       description: "Reviews code changes for potential issues",
-      systemPrompt: `Return your findings in this format:
+      systemPrompt: `You are a code review assistant. Analyze the provided code changes and identify potential issues, bugs, or improvements.
 
-FILE: <filename>
-LINES: <start>-<end>
-SEVERITY: error|warning|info|suggestion
-SHORT: <one-line description>
-FULL: <detailed description>
-SUGGESTION: <how to fix>
+Return your findings as a JSON array with this structure:
+[
+  {
+    "file": "path/to/file.ts",
+    "lineStart": 10,
+    "lineEnd": 15,
+    "severity": "error|warning|info|suggestion",
+    "shortDescription": "Brief description",
+    "fullDescription": "Detailed description",
+    "suggestion": "How to fix (optional)"
+  }
+]
 
----
-
-Repeat for each issue found.`,
+If no issues found, return an empty array: []`,
       enabled: true,
       order: 1,
-      executorId: "auggie-cli", // Use auggie-cli for real testing
+      executorId: "claude-cli", // Use Claude Code CLI
     },
     {
       id: "security-scan",

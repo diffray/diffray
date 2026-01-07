@@ -62,8 +62,8 @@ export function getDefaultExecutors(): AgentExecutor[] {
       description: "Execute via Claude Code CLI",
       type: "cli",
       command: "claude",
-      args: ["code", "review"],
-      timeout: 60,
+      args: ["-p", "--output-format", "json", "--no-session-persistence"],
+      timeout: 120,
       enabled: false, // Disabled by default
     },
     // Custom MCP Executor (example)

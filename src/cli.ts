@@ -525,10 +525,12 @@ async function runReview(verbose = false, jsonOutput = false, severityFilter?: s
   const pipeline = new Pipeline(subAgents, executors);
   const result = await pipeline.execute(filteredDiffs, verbose, jsonOutput);
 
+  const issuesFromResults = result.context.results.flatMap((r) => r.issues);
+
   // Apply severity filter if specified
-  let filteredIssues = result.context.issues;
+  let filteredIssues = issuesFromResults;
   if (severityFilter && severityFilter.length > 0) {
-    filteredIssues = result.context.issues.filter((issue) =>
+    filteredIssues = issuesFromResults.filter((issue) =>
       severityFilter.includes(issue.severity)
     );
   }

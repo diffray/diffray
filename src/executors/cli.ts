@@ -170,10 +170,10 @@ export class CLIExecutor extends BaseExecutor {
         };
 
       case "claude":
-        // Claude Code expects stdin
+        // Claude CLI expects: claude -p --output-format json "instruction here"
         return {
-          commandArgs: [this.cliConfig.command, ...args],
-          useStdin: true,
+          commandArgs: [this.cliConfig.command, ...args, fullPrompt],
+          useStdin: false,
         };
 
       default:
