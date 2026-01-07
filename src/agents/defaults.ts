@@ -1,13 +1,13 @@
 /**
- * Default SubAgents - default task configurations
+ * Default Agents - default task configurations
  */
 
-import type { SubAgent } from "../types";
+import type { Agent } from "../types";
 
 /**
- * Get default SubAgents
+ * Get default Agents
  */
-export function getDefaultSubAgents(): SubAgent[] {
+export function getDefaultAgents(): Agent[] {
   return [
     {
       id: "code-review",

@@ -1,20 +1,32 @@
 /**
- * CLI Executor - execution via CLI commands
+ * Base CLI Executor - shared logic for all CLI-based executors
  */
 
-import type { CLIAgentExecutor, ExecutionContext, ExecutionResult } from "../types";
-import { BaseExecutor } from "./base";
-import { log } from "../logger";
+import type { CLIAgentExecutor, ExecutionContext, ExecutionResult } from "../../types";
+import { BaseExecutor } from "./executor.js";
+import { log } from "../../logger.js";
 
 /**
- * CLI Executor - isolated CLI agent invocation
+ * Base CLI Executor - provides common CLI execution logic
+ * Concrete executors extend this and implement getDefaultConfig() and optionally prepareCommand()
  */
-export class CLIExecutor extends BaseExecutor {
-  private cliConfig: CLIAgentExecutor;
+export abstract class BaseCLIExecutor extends BaseExecutor {
+  protected cliConfig: CLIAgentExecutor;
 
-  constructor(config: CLIAgentExecutor) {
-    super(config);
-    this.cliConfig = config;
+  constructor(userConfig?: Partial<CLIAgentExecutor>) {
+    // Get default config from concrete executor
+    const defaultConfig = (null as any as BaseCLIExecutor).getDefaultConfig.call({
+      getDefaultConfig: () => (null as any as BaseCLIExecutor).getDefaultConfig.call(new (this.constructor as any)())
+    }) as CLIAgentExecutor;
+
+    // Merge with user config
+    const mergedConfig = {
+      ...defaultConfig,
+      ...userConfig,
+    } as CLIAgentExecutor;
+
+    super(mergedConfig);
+    this.cliConfig = mergedConfig;
   }
 
   /**
@@ -28,7 +40,7 @@ export class CLIExecutor extends BaseExecutor {
   }
 
   /**
-   * Execute SubAgent via CLI
+   * Execute Agent via CLI
    */
   async execute(context: ExecutionContext): Promise<ExecutionResult> {
     const startTime = Date.now();
@@ -43,11 +55,9 @@ export class CLIExecutor extends BaseExecutor {
       // Show command in verbose mode
       if (context.verbose) {
         if (useStdin) {
-          // For stdin mode, show command without prompt
           log.plain(`🔧 CLI command: ${commandArgs.join(" ")}`);
           log.plain(`   Input via stdin (${fullPrompt.length} chars)`);
         } else {
-          // For auggie mode, show command with args but truncate prompt
           const cmdWithoutPrompt = commandArgs.slice(0, -1).join(" ");
           log.plain(`🔧 CLI command: ${cmdWithoutPrompt} "<prompt ${fullPrompt.length} chars>"`);
         }
@@ -97,7 +107,6 @@ export class CLIExecutor extends BaseExecutor {
             timeoutPromise,
           ]);
         } catch (err) {
-          // Timeout or other error
           throw err;
         }
 
@@ -125,7 +134,6 @@ export class CLIExecutor extends BaseExecutor {
           fullPrompt
         );
       } catch (error) {
-        // Ensure process is killed on error
         try {
           proc.kill();
         } catch {
@@ -142,7 +150,6 @@ export class CLIExecutor extends BaseExecutor {
         );
       }
     } catch (error) {
-      // Outer catch for spawn errors
       const duration = Date.now() - startTime;
       return this.createResult(
         context,
@@ -155,34 +162,16 @@ export class CLIExecutor extends BaseExecutor {
   }
 
   /**
-   * Prepare command arguments based on CLI type
+   * Prepare command arguments - can be overridden by concrete executors
+   * Default behavior: pass prompt as last argument
    */
-  private prepareCommand(fullPrompt: string): { commandArgs: string[]; useStdin: boolean } {
+  protected prepareCommand(fullPrompt: string): { commandArgs: string[]; useStdin: boolean } {
     const args = this.cliConfig.args || [];
 
-    // Special handling for different CLI tools
-    switch (this.cliConfig.command) {
-      case "auggie":
-        // Auggie expects: auggie --print --quiet "instruction here"
-        return {
-          commandArgs: [this.cliConfig.command, ...args, fullPrompt],
-          useStdin: false,
-        };
-
-      case "claude":
-        // Claude CLI expects: claude -p --output-format json "instruction here"
-        return {
-          commandArgs: [this.cliConfig.command, ...args, fullPrompt],
-          useStdin: false,
-        };
-
-      default:
-        // Default: use stdin
-        return {
-          commandArgs: [this.cliConfig.command, ...args],
-          useStdin: true,
-        };
-    }
+    // Default: pass prompt as last argument (like auggie, claude)
+    return {
+      commandArgs: [this.cliConfig.command, ...args, fullPrompt],
+      useStdin: false,
+    };
   }
 }
-

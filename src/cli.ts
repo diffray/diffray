@@ -43,11 +43,11 @@ import {
   testRule,
 } from "./commands/rules";
 import { Pipeline } from "./pipeline";
-import { loadSubAgents, loadExecutors } from "./agents";
+import { loadAgents, loadExecutors } from "./agents";
 import { log } from "./logger";
 import { formatIssuesByFile, formatAsJSON } from "./issue-formatter";
 import { executorFactory } from "./executors/factory";
-import { subAgentRegistry } from "./subagents/registry";
+import { agentRegistry } from "./agents/registry";
 import { matchPattern } from "./rules";
 
 
@@ -498,7 +498,7 @@ async function runReview(verbose = false, jsonOutput = false, severityFilter?: s
     }
     log.newline();
 
-    log.robot("Loading executors and SubAgents...");
+    log.robot("Loading executors and Agents...");
   }
 
   // Load and register executors
@@ -511,14 +511,14 @@ async function runReview(verbose = false, jsonOutput = false, severityFilter?: s
     log.success(`Loaded ${enabledExecutors.length} executor(s)`);
   }
 
-  // Load and register SubAgents
-  const subAgents = await loadSubAgents();
-  const enabledSubAgents = subAgents.filter((a) => a.enabled);
-  for (const subAgent of enabledSubAgents) {
-    subAgentRegistry.registerSubAgent(subAgent);
+  // Load and register Agents
+  const subAgents = await loadAgents();
+  const enabledAgents = subAgents.filter((a) => a.enabled);
+  for (const subAgent of enabledAgents) {
+    agentRegistry.registerAgent(subAgent);
   }
   if (!jsonOutput) {
-    log.success(`Loaded ${enabledSubAgents.length} SubAgent(s)`);
+    log.success(`Loaded ${enabledAgents.length} Agent(s)`);
     log.newline();
   }
 

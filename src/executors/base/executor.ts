@@ -2,7 +2,7 @@
  * Base Executor - abstract base class for all executors
  */
 
-import type { AgentExecutor, ExecutionContext, ExecutionResult } from "../types";
+import type { AgentExecutor, ExecutionContext, ExecutionResult } from "../../types";
 
 /**
  * Abstract Executor - base class for all executor types
@@ -11,7 +11,13 @@ export abstract class BaseExecutor {
   constructor(protected config: AgentExecutor) {}
 
   /**
-   * Execute SubAgent with this executor
+   * Get executor default configuration
+   * Each concrete executor must implement this to provide its defaults
+   */
+  abstract getDefaultConfig(): AgentExecutor;
+
+  /**
+   * Execute Agent with this executor
    */
   abstract execute(context: ExecutionContext): Promise<ExecutionResult>;
 
@@ -21,7 +27,7 @@ export abstract class BaseExecutor {
   abstract validate(): boolean;
 
   /**
-   * Get executor info
+   * Get executor info (merged with user config)
    */
   getInfo(): AgentExecutor {
     return this.config;
@@ -53,8 +59,8 @@ export abstract class BaseExecutor {
     prompt?: string
   ): ExecutionResult {
     return {
-      subAgentId: context.subAgent.id,
-      subAgentName: context.subAgent.name,
+      agentId: context.agent.id,
+      agentName: context.agent.name,
       executorId: this.config.id,
       executorName: this.config.name,
       success,
@@ -65,4 +71,3 @@ export abstract class BaseExecutor {
     };
   }
 }
-

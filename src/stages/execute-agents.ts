@@ -1,9 +1,9 @@
 /**
- * Stage 2: Execute SubAgents
+ * Stage 2: Execute Agents
  */
 
 import type { Stage, StageResult, PipelineContext, ExecutionContext, AgentResult, GitDiff } from "../types";
-import { subAgentRegistry } from "../subagents/registry";
+import { agentRegistry } from "../agents/registry";
 import { executorFactory } from "../executors/factory";
 import { log, Spinner } from "../logger";
 import { parseIssuesAuto } from "../issue-parser";
@@ -13,8 +13,8 @@ import { getTokenCounterName, estimateTokens } from "../token-counter";
 export function createExecuteAgentsStage(): Stage {
   return {
     id: "execute-agents",
-    name: "Execute SubAgents",
-    description: "Execute SubAgents via Executors",
+    name: "Execute Agents",
+    description: "Execute Agents via Executors",
     enabled: true,
     order: 2,
     execute: async (context: PipelineContext): Promise<StageResult> => {
@@ -25,28 +25,28 @@ export function createExecuteAgentsStage(): Stage {
         log.plain(`🔢 Token counter: ${getTokenCounterName()}`);
       }
 
-      // Get enabled SubAgents
-      const enabledSubAgents = subAgentRegistry.listEnabledSubAgents();
+      // Get enabled Agents
+      const enabledAgents = agentRegistry.listEnabledAgents();
 
-      if (enabledSubAgents.length === 0) {
+      if (enabledAgents.length === 0) {
         if (!context.quiet) {
-          log.warn("No enabled SubAgents found");
+          log.warn("No enabled Agents found");
         }
         return {
           stageId: "execute-agents",
-          stageName: "Execute SubAgents",
+          stageName: "Execute Agents",
           success: true,
           duration: Date.now() - startTime,
         };
       }
 
       if (!context.quiet) {
-        log.sync(`Executing ${enabledSubAgents.length} SubAgent(s)...`);
+        log.sync(`Executing ${enabledAgents.length} Agent(s)...`);
       }
 
-      // Execute all SubAgents in parallel
+      // Execute all Agents in parallel
       const results = await Promise.all(
-        enabledSubAgents.map(async (subAgent) => {
+        enabledAgents.map(async (subAgent) => {
           try {
             // Get executor
             const executor = executorFactory.getExecutor(subAgent.executorId);
@@ -57,10 +57,10 @@ export function createExecuteAgentsStage(): Stage {
               return null;
             }
 
-            // Find matched rule for this SubAgent
+            // Find matched rule for this Agent
             const matchedRule = context.matchedRules?.find(mr => mr.subAgent.id === subAgent.id);
 
-            // Get diffs for this SubAgent (from matched rule)
+            // Get diffs for this Agent (from matched rule)
             let subAgentDiffs: GitDiff[];
             if (matchedRule?.files) {
               // Filter diffs by matched files
@@ -71,7 +71,7 @@ export function createExecuteAgentsStage(): Stage {
               subAgentDiffs = context.diffs;
             }
 
-            // Build system prompt: SubAgent.systemPrompt (agent settings/focus) + Rule.prompt (specific task)
+            // Build system prompt: Agent.systemPrompt (agent settings/focus) + Rule.prompt (specific task)
             let systemPrompt = subAgent.systemPrompt;
             if (matchedRule?.rule.prompt) {
               systemPrompt = `${subAgent.systemPrompt}\n\n${matchedRule.rule.prompt}`;
@@ -95,7 +95,7 @@ export function createExecuteAgentsStage(): Stage {
               log.plain(`  ${formatBatchInfo(batches[0], true)}`);
             }
 
-            // Execute batches in parallel for this SubAgent
+            // Execute batches in parallel for this Agent
             const batchResults = await Promise.all(
               batches.map(async (batch) => {
                 const batchSpinner: Spinner | null = context.quiet ? null : new Spinner(
@@ -142,7 +142,7 @@ export function createExecuteAgentsStage(): Stage {
                   };
 
                   // Execute batch
-                  const result = await executorFactory.executeSubAgent(execContext);
+                  const result = await executorFactory.executeAgent(execContext);
 
                   // Parse issues from batch output
                   const batchIssues = parseIssuesAuto(
@@ -237,12 +237,12 @@ export function createExecuteAgentsStage(): Stage {
       const successCount = results.filter((r) => r?.success).length;
       const failureCount = results.length - successCount;
       if (!context.quiet) {
-        log.sync(`Completed: ${successCount}/${enabledSubAgents.length} succeeded`);
+        log.sync(`Completed: ${successCount}/${enabledAgents.length} succeeded`);
       }
 
       return {
         stageId: "execute-agents",
-        stageName: "Execute SubAgents",
+        stageName: "Execute Agents",
         success: failureCount === 0,
         duration: Date.now() - startTime,
       };

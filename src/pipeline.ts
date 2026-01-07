@@ -1,10 +1,10 @@
 /**
- * Pipeline for processing diffs through SubAgents and Executors
+ * Pipeline for processing diffs through Agents and Executors
  */
 
 import type {
   GitDiff,
-  SubAgent,
+  Agent,
   AgentExecutor,
   PipelineContext,
   AgentResult,
@@ -20,59 +20,59 @@ import { CollapsibleOutput, formatLargeBlock } from "./interactive-output";
 import { parseIssuesAuto } from "./issue-parser";
 import { formatIssuesByFile } from "./issue-formatter";
 import { executorFactory } from "./executors/factory";
-import { subAgentRegistry } from "./subagents/registry";
+import { agentRegistry } from "./agents/registry";
 
 export class Pipeline {
-  private subAgents: SubAgent[] = [];
+  private agents: Agent[] = [];
   private executors: Map<string, AgentExecutor> = new Map();
   private stages: Stage[] = [];
 
-  constructor(subAgents: SubAgent[] = [], executors: AgentExecutor[] = [], stages?: Stage[]) {
-    this.subAgents = [...subAgents].sort((a, b) => a.order - b.order);
-    
+  constructor(agents: Agent[] = [], executors: AgentExecutor[] = [], stages?: Stage[]) {
+    this.agents = [...agents].sort((a, b) => a.order - b.order);
+
     // Register executors
     for (const executor of executors) {
       this.executors.set(executor.id, executor);
       executorFactory.registerExecutor(executor);
     }
-    
-    // Register SubAgents
-    for (const subAgent of subAgents) {
-      subAgentRegistry.registerSubAgent(subAgent);
+
+    // Register Agents
+    for (const agent of agents) {
+      agentRegistry.registerAgent(agent);
     }
-    
+
     this.stages = stages || getDefaultStages();
   }
 
   /**
-   * Add SubAgent to pipeline
+   * Add Agent to pipeline
    */
-  addSubAgent(subAgent: SubAgent): void {
-    this.subAgents.push(subAgent);
-    this.subAgents.sort((a, b) => a.order - b.order);
-    subAgentRegistry.registerSubAgent(subAgent);
+  addAgent(agent: Agent): void {
+    this.agents.push(agent);
+    this.agents.sort((a, b) => a.order - b.order);
+    agentRegistry.registerAgent(agent);
   }
 
   /**
-   * Remove SubAgent from pipeline
+   * Remove Agent from pipeline
    */
-  removeSubAgent(subAgentId: string): void {
-    this.subAgents = this.subAgents.filter((a) => a.id !== subAgentId);
-    subAgentRegistry.removeSubAgent(subAgentId);
+  removeAgent(agentId: string): void {
+    this.agents = this.agents.filter((a) => a.id !== agentId);
+    agentRegistry.removeAgent(agentId);
   }
 
   /**
-   * Get all SubAgents
+   * Get all Agents
    */
-  getSubAgents(): SubAgent[] {
-    return this.subAgents;
+  getAgents(): Agent[] {
+    return this.agents;
   }
 
   /**
-   * Get enabled SubAgents
+   * Get enabled Agents
    */
-  getEnabledSubAgents(): SubAgent[] {
-    return this.subAgents.filter((a) => a.enabled);
+  getEnabledAgents(): Agent[] {
+    return this.agents.filter((a) => a.enabled);
   }
 
   /**

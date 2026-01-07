@@ -3,7 +3,7 @@
  * Validates issues found by agents using an LLM to filter out false positives
  */
 
-import type { Stage, StageResult, PipelineContext, Issue, ExecutionContext, SubAgent, IssueSeverity } from "../types";
+import type { Stage, StageResult, PipelineContext, Issue, ExecutionContext, Agent, IssueSeverity } from "../types";
 import { log, Spinner } from "../logger";
 import { executorFactory } from "../executors/factory";
 
@@ -155,8 +155,8 @@ export function createValidationStage(): Stage {
         // Convert issues to JSON
         const issuesJson = JSON.stringify(allIssues, null, 2);
 
-        // Create a dummy SubAgent for validation
-        const validationSubAgent: SubAgent = {
+        // Create a dummy Agent for validation
+        const validationAgent: Agent = {
           id: "validation-agent",
           name: "Validation Agent",
           description: "Validates issues found by other agents",
@@ -168,7 +168,7 @@ export function createValidationStage(): Stage {
 
         // Create execution context
         const execContext: ExecutionContext = {
-          subAgent: validationSubAgent,
+          subAgent: validationAgent,
           executor,
           input: issuesJson,
           systemPrompt: VALIDATION_SYSTEM_PROMPT,
@@ -191,7 +191,7 @@ export function createValidationStage(): Stage {
         }
 
         // Execute validation
-        const result = await executorFactory.executeSubAgent(execContext);
+        const result = await executorFactory.executeAgent(execContext);
 
         if (!result.success) {
           if (spinner) {

@@ -4,7 +4,7 @@
 
 import type { Stage, StageResult, PipelineContext } from "../types";
 import { loadRules, matchRules } from "../rules";
-import { loadSubAgents } from "../agents";
+import { loadAgents } from "../agents";
 import { log } from "../logger";
 
 export function createMatchRulesStage(): Stage {
@@ -17,7 +17,7 @@ export function createMatchRulesStage(): Stage {
     execute: async (context: PipelineContext): Promise<StageResult> => {
       const startTime = Date.now();
       const rules = await loadRules();
-      const subAgents = await loadSubAgents();
+      const subAgents = await loadAgents();
       const matched = matchRules(rules, context.diffs, subAgents);
 
       // Store matched rules in context for later stages

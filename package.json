@@ -19,6 +19,7 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "glob": "^13.0.0",
     "zod": "^3.22.4"
   }
 }

@@ -32,11 +32,11 @@ export interface Issue {
 }
 
 /**
- * SubAgent - defines agent configuration and behavior
+ * Agent - defines agent configuration and behavior
  * systemPrompt: Agent's focus area, specialization, and output format
  * The specific task (WHAT to check) comes from Rule.prompt
  */
-export interface SubAgent {
+export interface Agent {
   id: string;
   name: string;
   description: string;
@@ -105,13 +105,13 @@ export interface MCPAgentExecutor extends BaseAgentExecutor {
 export type AgentExecutor = LLMAPIAgentExecutor | CLIAgentExecutor | MCPAgentExecutor;
 
 /**
- * Execution Context - SubAgent execution context
+ * Execution Context - Agent execution context
  */
 export interface ExecutionContext {
-  subAgent: SubAgent;
+  agent: Agent;
   executor: AgentExecutor;
   input: string; // Input data (diffs)
-  systemPrompt: string; // System prompt from SubAgent
+  systemPrompt: string; // System prompt from Agent
   verbose?: boolean; // Verbose mode flag
 }
 
@@ -119,8 +119,8 @@ export interface ExecutionContext {
  * Execution Result - execution result
  */
 export interface ExecutionResult {
-  subAgentId: string;
-  subAgentName: string;
+  agentId: string;
+  agentName: string;
   executorId: string;
   executorName: string;
   success: boolean;
@@ -145,8 +145,8 @@ export interface PipelineContext {
 }
 
 export interface AgentResult {
-  subAgentId: string;
-  subAgentName: string;
+  agentId: string;
+  agentName: string;
   executorId: string;
   executorName: string;
   success: boolean;
@@ -206,6 +206,6 @@ export interface Rule {
 export interface MatchedRule {
   rule: Rule;
   files: string[];
-  subAgent: SubAgent;
+  agent: Agent;
 }
 

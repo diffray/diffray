@@ -1,22 +1,30 @@
 /**
- * Agent management - loading SubAgents and Executors
+ * Agent management - loading Agents and Executors
  */
 
-import type { SubAgent, AgentExecutor } from "./types";
+import type { Agent, AgentExecutor } from "./types";
 import { loadConfig } from "./config";
 import { log } from "./logger";
-import { getDefaultSubAgents } from "./subagents/defaults";
-import { getDefaultExecutors } from "./executors/defaults";
+import { getDefaultAgents } from "./agents/defaults";
+import { executorFactory } from "./executors/factory";
 
 /**
- * Load SubAgents from backend
+ * Get default executors via auto-discovery
  */
-export async function loadSubAgentsFromBackend(): Promise<SubAgent[]> {
+async function getDefaultExecutors(): Promise<AgentExecutor[]> {
+  await executorFactory.autoDiscover();
+  return executorFactory.listExecutors();
+}
+
+/**
+ * Load Agents from backend
+ */
+export async function loadAgentsFromBackend(): Promise<Agent[]> {
   const config = await loadConfig();
 
   // Check if backend is enabled
   if (!config.backend.enabled || !config.backend.url) {
-    return getDefaultSubAgents();
+    return getDefaultAgents();
   }
 
   try {
@@ -33,17 +41,17 @@ export async function loadSubAgentsFromBackend(): Promise<SubAgent[]> {
     });
 
     if (response.ok) {
-      const subAgents = (await response.json()) as SubAgent[];
-      log.success(`Loaded ${subAgents.length} SubAgents from backend`);
+      const subAgents = (await response.json()) as Agent[];
+      log.success(`Loaded ${subAgents.length} Agents from backend`);
       return subAgents;
     } else {
       log.warn(`Backend returned ${response.status}, using defaults`);
     }
   } catch (error) {
-    log.warn("Failed to load SubAgents from backend, using defaults");
+    log.warn("Failed to load Agents from backend, using defaults");
   }
 
-  return getDefaultSubAgents();
+  return getDefaultAgents();
 }
 
 /**
@@ -85,43 +93,43 @@ export async function loadExecutorsFromBackend(): Promise<AgentExecutor[]> {
 }
 
 /**
- * Save SubAgents to local cache
+ * Save Agents to local cache
  */
-export async function saveSubAgentsToCache(subAgents: SubAgent[]): Promise<void> {
+export async function saveAgentsToCache(subAgents: Agent[]): Promise<void> {
   const cacheFile = `${process.env.HOME}/.diffray/subagents.json`;
   await Bun.write(cacheFile, JSON.stringify(subAgents, null, 2));
 }
 
 /**
- * Load SubAgents from local cache
+ * Load Agents from local cache
  */
-export async function loadSubAgentsFromCache(): Promise<SubAgent[] | null> {
+export async function loadAgentsFromCache(): Promise<Agent[] | null> {
   try {
     const cacheFile = Bun.file(`${process.env.HOME}/.diffray/subagents.json`);
     if (await cacheFile.exists()) {
       return await cacheFile.json();
     }
   } catch (error) {
-    log.warn("Failed to load SubAgents from cache");
+    log.warn("Failed to load Agents from cache");
   }
   return null;
 }
 
 /**
- * Load SubAgents (from cache or backend)
+ * Load Agents (from cache or backend)
  */
-export async function loadSubAgents(): Promise<SubAgent[]> {
+export async function loadAgents(): Promise<Agent[]> {
   // Try cache first
-  const cached = await loadSubAgentsFromCache();
+  const cached = await loadAgentsFromCache();
   if (cached) {
     return cached;
   }
 
   // Load from backend
-  const subAgents = await loadSubAgentsFromBackend();
+  const subAgents = await loadAgentsFromBackend();
 
   // Save to cache
-  await saveSubAgentsToCache(subAgents);
+  await saveAgentsToCache(subAgents);
 
   return subAgents;
 }

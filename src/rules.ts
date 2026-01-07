@@ -5,7 +5,7 @@
 import { join } from "path";
 import { homedir } from "os";
 import { z } from "zod";
-import type { Rule, SubAgent, MatchedRule, GitDiff } from "./types";
+import type { Rule, Agent, MatchedRule, GitDiff } from "./types";
 import { log } from "./logger";
 
 const DIFFRAY_DIR = join(homedir(), ".diffray");
@@ -117,7 +117,7 @@ Only report actual security risks. Do NOT report positive observations or "no is
 /**
  * Match rules to files
  */
-export function matchRules(rules: Rule[], diffs: GitDiff[], subAgents: SubAgent[]): MatchedRule[] {
+export function matchRules(rules: Rule[], diffs: GitDiff[], subAgents: Agent[]): MatchedRule[] {
   const matched: MatchedRule[] = [];
 
   for (const rule of rules) {

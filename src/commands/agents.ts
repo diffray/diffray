@@ -1,22 +1,22 @@
 /**
- * SubAgent management commands
+ * Agent management commands
  */
 
-import { loadSubAgents, saveSubAgentsToCache, loadSubAgentsFromBackend } from "../agents";
-import type { SubAgent } from "../types";
+import { loadAgents, saveAgentsToCache, loadAgentsFromBackend } from "../agents";
+import type { Agent } from "../types";
 import { log } from "../logger";
 
 /**
- * List all SubAgents
+ * List all Agents
  */
 export async function listAgents(): Promise<void> {
-  const subAgents = await loadSubAgents();
+  const subAgents = await loadAgents();
 
-  log.robot("Available SubAgents");
+  log.robot("Available Agents");
   log.newline();
 
   if (subAgents.length === 0) {
-    log.plain("No SubAgents configured");
+    log.plain("No Agents configured");
     return;
   }
 
@@ -31,18 +31,18 @@ export async function listAgents(): Promise<void> {
 }
 
 /**
- * Show SubAgent details
+ * Show Agent details
  */
 export async function showAgent(subAgentId: string): Promise<void> {
-  const subAgents = await loadSubAgents();
+  const subAgents = await loadAgents();
   const subAgent = subAgents.find((a) => a.id === subAgentId);
 
   if (!subAgent) {
-    log.error(`SubAgent not found: ${subAgentId}`);
+    log.error(`Agent not found: ${subAgentId}`);
     process.exit(1);
   }
 
-  log.robot(`SubAgent: ${subAgent.name}`);
+  log.robot(`Agent: ${subAgent.name}`);
   log.newline();
   log.plain(`ID: ${subAgent.id}`);
   log.plain(`Executor: ${subAgent.executorId}`);
@@ -57,69 +57,69 @@ export async function showAgent(subAgentId: string): Promise<void> {
 }
 
 /**
- * Enable SubAgent
+ * Enable Agent
  */
 export async function enableAgent(subAgentId: string): Promise<void> {
-  const subAgents = await loadSubAgents();
+  const subAgents = await loadAgents();
   const subAgent = subAgents.find((a) => a.id === subAgentId);
 
   if (!subAgent) {
-    log.error(`SubAgent not found: ${subAgentId}`);
+    log.error(`Agent not found: ${subAgentId}`);
     process.exit(1);
   }
 
   subAgent.enabled = true;
-  await saveSubAgentsToCache(subAgents);
-  log.success(`Enabled SubAgent: ${subAgent.name}`);
+  await saveAgentsToCache(subAgents);
+  log.success(`Enabled Agent: ${subAgent.name}`);
 }
 
 /**
- * Disable SubAgent
+ * Disable Agent
  */
 export async function disableAgent(subAgentId: string): Promise<void> {
-  const subAgents = await loadSubAgents();
+  const subAgents = await loadAgents();
   const subAgent = subAgents.find((a) => a.id === subAgentId);
 
   if (!subAgent) {
-    log.error(`SubAgent not found: ${subAgentId}`);
+    log.error(`Agent not found: ${subAgentId}`);
     process.exit(1);
   }
 
   subAgent.enabled = false;
-  await saveSubAgentsToCache(subAgents);
-  log.success(`Disabled SubAgent: ${subAgent.name}`);
+  await saveAgentsToCache(subAgents);
+  log.success(`Disabled Agent: ${subAgent.name}`);
 }
 
 /**
- * Sync SubAgents from backend
+ * Sync Agents from backend
  */
 export async function syncAgents(): Promise<void> {
-  log.sync("Syncing SubAgents from backend...");
+  log.sync("Syncing Agents from backend...");
 
   try {
-    const subAgents = await loadSubAgentsFromBackend();
-    await saveSubAgentsToCache(subAgents);
-    log.success(`Synced ${subAgents.length} SubAgent(s)`);
+    const subAgents = await loadAgentsFromBackend();
+    await saveAgentsToCache(subAgents);
+    log.success(`Synced ${subAgents.length} Agent(s)`);
   } catch (error) {
-    log.error(`Failed to sync SubAgents: ${error}`);
+    log.error(`Failed to sync Agents: ${error}`);
     process.exit(1);
   }
 }
 
 /**
- * Set SubAgent order
+ * Set Agent order
  */
 export async function setAgentOrder(subAgentId: string, order: number): Promise<void> {
-  const subAgents = await loadSubAgents();
+  const subAgents = await loadAgents();
   const subAgent = subAgents.find((a) => a.id === subAgentId);
 
   if (!subAgent) {
-    log.error(`SubAgent not found: ${subAgentId}`);
+    log.error(`Agent not found: ${subAgentId}`);
     process.exit(1);
   }
 
   subAgent.order = order;
-  await saveSubAgentsToCache(subAgents);
+  await saveAgentsToCache(subAgents);
   log.success(`Set order for ${subAgent.name} to ${order}`);
 }
 

@@ -1,19 +1,44 @@
 /**
- * MCP Executor - execution via MCP (Model Context Protocol)
+ * Custom MCP Executor - execution via MCP (Model Context Protocol)
  */
 
-import type { MCPAgentExecutor, ExecutionContext, ExecutionResult } from "../types";
-import { BaseExecutor } from "./base";
+import type { MCPAgentExecutor, ExecutionContext, ExecutionResult } from "../../types";
+import { BaseExecutor } from "../base/executor.js";
 
 /**
- * MCP Executor - isolated MCP server invocation
+ * Custom MCP Executor
  */
-export class MCPExecutor extends BaseExecutor {
-  private mcpConfig: MCPAgentExecutor;
+export class CustomMCPExecutor extends BaseExecutor {
+  protected mcpConfig: MCPAgentExecutor;
 
-  constructor(config: MCPAgentExecutor) {
-    super(config);
-    this.mcpConfig = config;
+  constructor(userConfig?: Partial<MCPAgentExecutor>) {
+    // Get default config
+    const instance = new (this.constructor as any)();
+    const defaultConfig = instance.getDefaultConfig() as MCPAgentExecutor;
+
+    // Merge with user config
+    const mergedConfig = {
+      ...defaultConfig,
+      ...userConfig,
+    } as MCPAgentExecutor;
+
+    super(mergedConfig);
+    this.mcpConfig = mergedConfig;
+  }
+
+  getDefaultConfig(): MCPAgentExecutor {
+    return {
+      id: "custom-mcp",
+      name: "Custom MCP Server",
+      description: "Execute via custom MCP server",
+      type: "mcp",
+      serverName: "code-review-server",
+      toolName: "review_code",
+      config: {
+        endpoint: "http://localhost:3000",
+      },
+      enabled: false,
+    };
   }
 
   /**
@@ -27,7 +52,7 @@ export class MCPExecutor extends BaseExecutor {
   }
 
   /**
-   * Execute SubAgent via MCP
+   * Execute Agent via MCP
    */
   async execute(context: ExecutionContext): Promise<ExecutionResult> {
     const startTime = Date.now();
@@ -40,10 +65,10 @@ export class MCPExecutor extends BaseExecutor {
       // 1. Connect to MCP server
       // 2. Call tool with prompt
       // 3. Get response
-      
+
       // For now, return demo output
       await new Promise((resolve) => setTimeout(resolve, 100));
-      
+
       const output = `[MCP: ${this.mcpConfig.name}] Demo output from MCP server\n\nServer: ${this.mcpConfig.serverName}\nTool: ${this.mcpConfig.toolName}\n\nPrompt received: ${fullPrompt.substring(0, 100)}...`;
 
       const duration = Date.now() - startTime;
@@ -85,4 +110,3 @@ export class MCPExecutor extends BaseExecutor {
     return "";
   }
 }
-
