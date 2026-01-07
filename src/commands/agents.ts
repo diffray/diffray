@@ -1,31 +1,34 @@
 /**
  * Agent management commands
+ *
+ * Agents are defined in Markdown files and cached in config.json:
+ * - Agents are defined in src/defaults/agents/*.md files
+ * - Sync command refreshes cache from Markdown files
+ * - Agents are loaded from cache for performance
+ * - Enabled/disabled via frontmatter in Markdown files
  */
 
-import { loadAgents, saveAgentsToCache, loadAgentsFromBackend } from "../agents";
-import type { Agent } from "../types";
-import { log } from "../logger";
+import { loadAgents, syncAgentsToConfig } from '../agents.js';
+import { log } from '../logger';
 
 /**
  * List all Agents
  */
 export async function listAgents(): Promise<void> {
-  const subAgents = await loadAgents();
+  const agents = await loadAgents(process.cwd());
 
-  log.robot("Available Agents");
+  log.robot('Available Agents');
   log.newline();
 
-  if (subAgents.length === 0) {
-    log.plain("No Agents configured");
+  if (agents.length === 0) {
+    log.plain('No Agents configured');
     return;
   }
 
-  for (const subAgent of subAgents) {
-    const status = subAgent.enabled ? "✅" : "❌";
-    log.plain(`${status} [${subAgent.id}] ${subAgent.name}`);
-    log.plain(`   ${subAgent.description}`);
-    log.plain(`   Executor: ${subAgent.executorId}`);
-    log.plain(`   Order: ${subAgent.order}`);
+  for (const agent of agents) {
+    log.plain(`● [${agent.id}] ${agent.name}`);
+    log.plain(`   ${agent.description}`);
+    log.plain(`   Executor: ${agent.executor}`);
     log.newline();
   }
 }
@@ -33,93 +36,38 @@ export async function listAgents(): Promise<void> {
 /**
  * Show Agent details
  */
-export async function showAgent(subAgentId: string): Promise<void> {
-  const subAgents = await loadAgents();
-  const subAgent = subAgents.find((a) => a.id === subAgentId);
+export async function showAgent(agentId: string): Promise<void> {
+  const agents = await loadAgents(process.cwd());
+  const agent = agents.find((a) => a.id === agentId);
 
-  if (!subAgent) {
-    log.error(`Agent not found: ${subAgentId}`);
+  if (!agent) {
+    log.error(`Agent not found: ${agentId}`);
     process.exit(1);
   }
 
-  log.robot(`Agent: ${subAgent.name}`);
+  log.robot(`Agent: ${agent.name}`);
   log.newline();
-  log.plain(`ID: ${subAgent.id}`);
-  log.plain(`Executor: ${subAgent.executorId}`);
-  log.plain(`Description: ${subAgent.description}`);
-  log.plain(`Enabled: ${subAgent.enabled ? "Yes" : "No"}`);
-  log.plain(`Order: ${subAgent.order}`);
+  log.plain(`ID: ${agent.id}`);
+  log.plain(`Executor: ${agent.executor}`);
+  log.plain(`Description: ${agent.description}`);
   log.newline();
-  log.plain("System Prompt:");
-  log.separator("─");
-  log.plain(subAgent.systemPrompt || "(no prompt)");
-  log.separator("─");
+  log.plain('System Prompt:');
+  log.separator('─');
+  log.plain(agent.systemPrompt || '(no prompt)');
+  log.separator('─');
 }
 
 /**
- * Enable Agent
- */
-export async function enableAgent(subAgentId: string): Promise<void> {
-  const subAgents = await loadAgents();
-  const subAgent = subAgents.find((a) => a.id === subAgentId);
-
-  if (!subAgent) {
-    log.error(`Agent not found: ${subAgentId}`);
-    process.exit(1);
-  }
-
-  subAgent.enabled = true;
-  await saveAgentsToCache(subAgents);
-  log.success(`Enabled Agent: ${subAgent.name}`);
-}
-
-/**
- * Disable Agent
- */
-export async function disableAgent(subAgentId: string): Promise<void> {
-  const subAgents = await loadAgents();
-  const subAgent = subAgents.find((a) => a.id === subAgentId);
-
-  if (!subAgent) {
-    log.error(`Agent not found: ${subAgentId}`);
-    process.exit(1);
-  }
-
-  subAgent.enabled = false;
-  await saveAgentsToCache(subAgents);
-  log.success(`Disabled Agent: ${subAgent.name}`);
-}
-
-/**
- * Sync Agents from backend
+ * Sync agents from MD files to config cache
  */
 export async function syncAgents(): Promise<void> {
-  log.sync("Syncing Agents from backend...");
+  log.sync('Syncing agents from MD files...');
 
   try {
-    const subAgents = await loadAgentsFromBackend();
-    await saveAgentsToCache(subAgents);
-    log.success(`Synced ${subAgents.length} Agent(s)`);
+    await syncAgentsToConfig(process.cwd());
+    log.success('Agents synced successfully');
   } catch (error) {
-    log.error(`Failed to sync Agents: ${error}`);
+    log.error(`Failed to sync agents: ${error}`);
     process.exit(1);
   }
 }
-
-/**
- * Set Agent order
- */
-export async function setAgentOrder(subAgentId: string, order: number): Promise<void> {
-  const subAgents = await loadAgents();
-  const subAgent = subAgents.find((a) => a.id === subAgentId);
-
-  if (!subAgent) {
-    log.error(`Agent not found: ${subAgentId}`);
-    process.exit(1);
-  }
-
-  subAgent.order = order;
-  await saveAgentsToCache(subAgents);
-  log.success(`Set order for ${subAgent.name} to ${order}`);
-}
-

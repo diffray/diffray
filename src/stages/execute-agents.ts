@@ -2,19 +2,26 @@
  * Stage 2: Execute Agents
  */
 
-import type { Stage, StageResult, PipelineContext, ExecutionContext, AgentResult, GitDiff } from "../types";
-import { agentRegistry } from "../agents/registry";
-import { executorFactory } from "../executors/factory";
-import { log, Spinner } from "../logger";
-import { parseIssuesAuto } from "../issue-parser";
-import { batchDiffs, formatBatchInfo, type DiffBatch } from "../token-utils";
-import { getTokenCounterName, estimateTokens } from "../token-counter";
+import type {
+  Stage,
+  StageResult,
+  PipelineContext,
+  ExecutionContext,
+  AgentResult,
+  GitDiff,
+} from '../types';
+import { agentRegistry } from '../agents/registry';
+import { executorFactory } from '../executors/factory';
+import { log, Spinner } from '../logger';
+import { parseIssuesAuto } from '../issue-parser';
+import { batchDiffs, formatBatchInfo } from '../token-utils';
+import { getTokenCounterName, estimateTokens } from '../token-counter';
 
 export function createExecuteAgentsStage(): Stage {
   return {
-    id: "execute-agents",
-    name: "Execute Agents",
-    description: "Execute Agents via Executors",
+    id: 'execute-agents',
+    name: 'Execute Agents',
+    description: 'Execute Agents via Executors',
     enabled: true,
     order: 2,
     execute: async (context: PipelineContext): Promise<StageResult> => {
@@ -22,19 +29,19 @@ export function createExecuteAgentsStage(): Stage {
 
       // Show token counter info in verbose mode
       if (context.verbose && !context.quiet) {
-        log.plain(`🔢 Token counter: ${getTokenCounterName()}`);
+        log.plain(`Token counter: ${getTokenCounterName()}`);
       }
 
       // Get enabled Agents
-      const enabledAgents = agentRegistry.listEnabledAgents();
+      const enabledAgents = agentRegistry.listEnabled();
 
       if (enabledAgents.length === 0) {
         if (!context.quiet) {
-          log.warn("No enabled Agents found");
+          log.warn('No enabled Agents found');
         }
         return {
-          stageId: "execute-agents",
-          stageName: "Execute Agents",
+          stageId: 'execute-agents',
+          stageName: 'Execute Agents',
           success: true,
           duration: Date.now() - startTime,
         };
@@ -46,47 +53,47 @@ export function createExecuteAgentsStage(): Stage {
 
       // Execute all Agents in parallel
       const results = await Promise.all(
-        enabledAgents.map(async (subAgent) => {
+        enabledAgents.map(async (agent) => {
           try {
             // Get executor
-            const executor = executorFactory.getExecutor(subAgent.executorId);
+            const executor = executorFactory.get(agent.executor);
             if (!executor) {
               if (!context.quiet) {
-                log.warn(`Executor not found: ${subAgent.executorId}`);
+                log.warn(`Executor not found: ${agent.executor}`);
               }
               return null;
             }
 
             // Find matched rule for this Agent
-            const matchedRule = context.matchedRules?.find(mr => mr.subAgent.id === subAgent.id);
+            const matchedRule = context.matchedRules?.find((mr) => mr.agent.id === agent.id);
 
             // Get diffs for this Agent (from matched rule)
-            let subAgentDiffs: GitDiff[];
+            let agentDiffs: GitDiff[];
             if (matchedRule?.files) {
               // Filter diffs by matched files
               const matchedFileSet = new Set(matchedRule.files);
-              subAgentDiffs = context.diffs.filter(diff => matchedFileSet.has(diff.file));
+              agentDiffs = context.diffs.filter((diff) => matchedFileSet.has(diff.file));
             } else {
               // Use all diffs if no matched rule
-              subAgentDiffs = context.diffs;
+              agentDiffs = context.diffs;
             }
 
             // Build system prompt: Agent.systemPrompt (agent settings/focus) + Rule.prompt (specific task)
-            let systemPrompt = subAgent.systemPrompt;
+            let systemPrompt = agent.systemPrompt;
             if (matchedRule?.rule.prompt) {
-              systemPrompt = `${subAgent.systemPrompt}\n\n${matchedRule.rule.prompt}`;
+              systemPrompt = `${agent.systemPrompt}\n\n${matchedRule.rule.prompt}`;
             }
 
             // Split diffs into batches
-            const batches = batchDiffs(subAgentDiffs, systemPrompt);
+            const batches = batchDiffs(agentDiffs, systemPrompt);
 
             // Log batch information (skip if in quiet mode)
             if (context.quiet) {
               // Skip logging in quiet mode
             } else if (batches.length > 1) {
-              log.sync(`${subAgent.name}: ${batches.length} batches (${subAgentDiffs.length} files)`);
+              log.sync(`${agent.name}: ${batches.length} batches (${agentDiffs.length} files)`);
               if (context.verbose) {
-                batches.forEach(batch => {
+                batches.forEach((batch) => {
                   log.plain(`  ${formatBatchInfo(batch, true)}`);
                 });
               }
@@ -98,16 +105,18 @@ export function createExecuteAgentsStage(): Stage {
             // Execute batches in parallel for this Agent
             const batchResults = await Promise.all(
               batches.map(async (batch) => {
-                const batchSpinner: Spinner | null = context.quiet ? null : new Spinner(
-                  batches.length > 1
-                    ? `${subAgent.name} (batch ${batch.batchIndex + 1}/${batches.length})...`
-                    : `${subAgent.name}...`
-                );
+                const batchSpinner: Spinner | null = context.quiet
+                  ? null
+                  : new Spinner(
+                      batches.length > 1
+                        ? `${agent.name} (batch ${batch.batchIndex + 1}/${batches.length})...`
+                        : `${agent.name}...`
+                    );
 
                 // Prepare batch input
                 const batchDiffsText = batch.diffs
                   .map((diff) => `File: ${diff.file}\n${diff.diff}`)
-                  .join("\n\n");
+                  .join('\n\n');
 
                 // Build full prompt for display
                 const fullPrompt = `${systemPrompt}\n\n# Input:\n${batchDiffsText}`;
@@ -118,11 +127,15 @@ export function createExecuteAgentsStage(): Stage {
                   const inputTokens = estimateTokens(batchDiffsText);
 
                   log.newline();
-                  log.plain(`📝 Prompt for ${subAgent.name} (batch ${batch.batchIndex + 1}/${batches.length}):`);
-                  log.plain(`   Tokens: ${batch.tokenCount.toLocaleString()} (~${systemTokens.toLocaleString()} system + ~${inputTokens.toLocaleString()} input)`);
-                  log.plain("─".repeat(80));
+                  log.plain(
+                    `Prompt for ${agent.name} (batch ${batch.batchIndex + 1}/${batches.length}):`
+                  );
+                  log.plain(
+                    `   Tokens: ${batch.tokenCount.toLocaleString()} (~${systemTokens.toLocaleString()} system + ~${inputTokens.toLocaleString()} input)`
+                  );
+                  log.plain('─'.repeat(80));
                   log.plain(fullPrompt);
-                  log.plain("─".repeat(80));
+                  log.plain('─'.repeat(80));
                   log.newline();
                 }
 
@@ -134,7 +147,7 @@ export function createExecuteAgentsStage(): Stage {
                 try {
                   // Create execution context
                   const execContext: ExecutionContext = {
-                    subAgent,
+                    agent,
                     executor: executor.getInfo(),
                     input: batchDiffsText,
                     systemPrompt,
@@ -147,19 +160,21 @@ export function createExecuteAgentsStage(): Stage {
                   // Parse issues from batch output
                   const batchIssues = parseIssuesAuto(
                     result.output,
-                    result.subAgentId,
-                    result.subAgentName
+                    result.agentId,
+                    result.agentName
                   );
 
                   if (batchSpinner) {
                     if (result.success) {
                       batchSpinner.succeed(
                         batches.length > 1
-                          ? `${subAgent.name} (batch ${batch.batchIndex + 1}/${batches.length}, ${result.duration}ms)`
-                          : `${subAgent.name} (${result.duration}ms)`
+                          ? `${agent.name} (batch ${batch.batchIndex + 1}/${batches.length}, ${result.duration}ms)`
+                          : `${agent.name} (${result.duration}ms)`
                       );
                     } else {
-                      batchSpinner.fail(`${subAgent.name} (batch ${batch.batchIndex + 1}/${batches.length}): ${result.error}`);
+                      batchSpinner.fail(
+                        `${agent.name} (batch ${batch.batchIndex + 1}/${batches.length}): ${result.error}`
+                      );
                     }
                   }
 
@@ -167,27 +182,36 @@ export function createExecuteAgentsStage(): Stage {
                     issues: batchIssues,
                     duration: result.duration,
                     success: result.success,
+                    error: result.error,
                   };
                 } catch (error) {
+                  const errorMessage = error instanceof Error ? error.message : String(error);
                   if (batchSpinner) {
-                    batchSpinner.fail(`${subAgent.name} (batch ${batch.batchIndex + 1}/${batches.length}): ${error}`);
+                    batchSpinner.fail(
+                      `${agent.name} (batch ${batch.batchIndex + 1}/${batches.length}): ${errorMessage}`
+                    );
                   }
                   return {
                     issues: [],
                     duration: 0,
                     success: false,
+                    error: errorMessage,
                   };
                 }
               })
             );
 
-            // Collect all issues and calculate total duration
-            const allIssues: any[] = [];
+            // Collect all issues, errors and calculate total duration
+            const allIssues: ReturnType<typeof parseIssuesAuto> = [];
+            const errors: string[] = [];
             let totalDuration = 0;
 
             for (const batchResult of batchResults) {
               allIssues.push(...batchResult.issues);
               totalDuration += batchResult.duration;
+              if (batchResult.error) {
+                errors.push(batchResult.error);
+              }
             }
 
             // Add all issues to context
@@ -195,16 +219,27 @@ export function createExecuteAgentsStage(): Stage {
 
             const batchSuccess = batchResults.every((batchResult) => batchResult.success);
 
+            // Format error message (deduplicate similar errors)
+            let agentError: string | undefined;
+            if (errors.length > 0) {
+              const uniqueErrors = [...new Set(errors)];
+              agentError =
+                uniqueErrors.length === 1 && errors.length > 1
+                  ? `${uniqueErrors[0]} (${errors.length} batches)`
+                  : uniqueErrors.join('; ');
+            }
+
             // Create combined AgentResult
             const agentResult: AgentResult = {
-              subAgentId: subAgent.id,
-              subAgentName: subAgent.name,
-              executorId: subAgent.executorId,
-              executorName: executorFactory.getExecutor(subAgent.executorId)?.getInfo().name || "unknown",
+              agentId: agent.id,
+              agentName: agent.name,
+              executor: agent.executor,
+              executorName: executorFactory.get(agent.executor)?.getInfo().name || 'unknown',
               success: batchSuccess,
               output: `Processed ${batches.length} batch(es), found ${allIssues.length} issue(s)`,
               duration: totalDuration,
               issues: allIssues,
+              error: agentError,
             };
 
             context.results.push(agentResult);
@@ -213,16 +248,16 @@ export function createExecuteAgentsStage(): Stage {
           } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             if (!context.quiet) {
-              log.error(`${subAgent.name}: ${errorMessage}`);
+              log.error(`${agent.name}: ${errorMessage}`);
             }
 
             const agentResult: AgentResult = {
-              subAgentId: subAgent.id,
-              subAgentName: subAgent.name,
-              executorId: subAgent.executorId,
-              executorName: "unknown",
+              agentId: agent.id,
+              agentName: agent.name,
+              executor: agent.executor,
+              executorName: 'unknown',
               success: false,
-              output: "",
+              output: '',
               error: errorMessage,
               duration: 0,
               issues: [],
@@ -235,16 +270,28 @@ export function createExecuteAgentsStage(): Stage {
       );
 
       const successCount = results.filter((r) => r?.success).length;
-      const failureCount = results.length - successCount;
+      const failedAgents = results.filter((r) => r && !r.success);
+      const failureCount = failedAgents.length;
+
       if (!context.quiet) {
-        log.sync(`Completed: ${successCount}/${enabledAgents.length} succeeded`);
+        log.done(`Completed: ${successCount}/${enabledAgents.length} succeeded`);
+      }
+
+      // Collect error messages from failed agents
+      let stageError: string | undefined;
+      if (failureCount > 0) {
+        const errorParts = failedAgents
+          .map((a) => `${a?.agentName || 'Unknown'}: ${a?.error || 'execution failed'}`)
+          .filter(Boolean);
+        stageError = errorParts.join('; ');
       }
 
       return {
-        stageId: "execute-agents",
-        stageName: "Execute Agents",
+        stageId: 'execute-agents',
+        stageName: 'Execute Agents',
         success: failureCount === 0,
         duration: Date.now() - startTime,
+        error: stageError,
       };
     },
   };

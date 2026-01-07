@@ -1,163 +1,54 @@
-/**
- * Agent management - loading Agents and Executors
- */
-
-import type { Agent, AgentExecutor } from "./types";
-import { loadConfig, getAgents, getExecutors, updateConfig } from "./config";
-import { log } from "./logger";
-import { getDefaultAgents } from "./agents/defaults";
-import { executorFactory } from "./executors/factory";
+import type { Agent } from './types';
+import { loadAgentsFromDirectory } from './agents/md-loader.js';
+import { loadWithPriority } from './md-loader.js';
+import { loadConfig, updateConfig, getAgents } from './config.js';
+import { log } from './logger.js';
 
 /**
- * Get default executors via auto-discovery
+ * Load agents from all sources with priority merge and cache them in config
+ *
+ * Caching strategy:
+ * - Agents are cached in the global config file
+ * - When cache is empty or undefined, agents are synced from MD files
+ * - Subsequent calls return cached agents for performance
+ * - Cache can be refreshed by calling syncAgentsToConfig()
+ *
+ * @param projectPath - Path to project root (defaults to process.cwd())
+ * @returns Merged agents array from cache or MD sources
  */
-async function getDefaultExecutors(): Promise<AgentExecutor[]> {
-  await executorFactory.autoDiscover();
-  return executorFactory.listExecutors();
-}
-
-/**
- * Load unified config from backend
- */
-async function loadConfigFromBackend() {
+export async function loadAgents(projectPath?: string): Promise<Agent[]> {
   const config = await loadConfig();
 
-  // Check if backend is enabled
-  if (!config.backend.enabled || !config.backend.url) {
-    return null;
+  // If cache is empty, sync from MD sources
+  if (!config.agents || config.agents.length === 0) {
+    await syncAgentsToConfig(projectPath);
+    const updatedConfig = await loadConfig();
+    return getAgents(updatedConfig);
   }
 
-  try {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-
-    if (config.backend.apiKey) {
-      headers["Authorization"] = `Bearer ${config.backend.apiKey}`;
-    }
-
-    const response = await fetch(`${config.backend.url}/config`, {
-      headers,
-    });
-
-    if (response.ok) {
-      const backendConfig = await response.json();
-      log.success(`Loaded config from backend`);
-      return backendConfig;
-    } else {
-      log.warn(`Backend returned ${response.status}, using local config`);
-    }
-  } catch (error) {
-    log.warn("Failed to load config from backend, using local config");
-  }
-
-  return null;
-}
-
-/**
- * Load Agents from backend
- */
-export async function loadAgentsFromBackend(): Promise<Agent[]> {
-  const backendConfig = await loadConfigFromBackend();
-
-  if (backendConfig && backendConfig.agents) {
-    log.success(`Loaded ${backendConfig.agents.length} Agents from backend`);
-    return backendConfig.agents;
-  }
-
-  return getDefaultAgents();
-}
-
-/**
- * Load Executors from backend
- */
-export async function loadExecutorsFromBackend(): Promise<AgentExecutor[]> {
-  const backendConfig = await loadConfigFromBackend();
-
-  if (backendConfig && backendConfig.executors) {
-    log.success(`Loaded ${backendConfig.executors.length} Executors from backend`);
-    return backendConfig.executors;
-  }
-
-  return getDefaultExecutors();
-}
-
-/**
- * Save Agents to unified config
- */
-export async function saveAgentsToCache(agents: Agent[]): Promise<void> {
-  await updateConfig({ agents });
-}
-
-/**
- * @deprecated Use loadAgents() instead - now reads from unified config
- */
-export async function loadAgentsFromCache(): Promise<Agent[] | null> {
-  try {
-    const cacheFile = Bun.file(`${process.env.HOME}/.diffray/subagents.json`);
-    if (await cacheFile.exists()) {
-      return await cacheFile.json();
-    }
-  } catch (error) {
-    log.warn("Failed to load Agents from cache");
-  }
-  return null;
-}
-
-/**
- * Load Agents from unified config
- */
-export async function loadAgents(): Promise<Agent[]> {
-  const config = await loadConfig();
-  
-  // If no agents in config, try loading from backend and save to config
-  if (config.agents.length === 0) {
-    const agents = await loadAgentsFromBackend();
-    if (agents.length > 0) {
-      await updateConfig({ agents });
-    }
-    return agents;
-  }
-  
   return getAgents(config);
 }
 
 /**
- * Save Executors to unified config
+ * Sync agents from MD sources to config cache
+ *
+ * Loads agents from all sources (defaults, user, project) with priority merge
+ * and saves them to the config cache for fast subsequent access.
+ *
+ * @param projectPath - Path to project root (defaults to process.cwd())
  */
-export async function saveExecutorsToCache(executors: AgentExecutor[]): Promise<void> {
-  await updateConfig({ executors });
-}
+export async function syncAgentsToConfig(projectPath?: string): Promise<void> {
+  const resolvedProjectPath = projectPath || process.cwd();
 
-/**
- * @deprecated Use loadExecutors() instead - now reads from unified config
- */
-export async function loadExecutorsFromCache(): Promise<AgentExecutor[] | null> {
-  try {
-    const cacheFile = Bun.file(`${process.env.HOME}/.diffray/executors.json`);
-    if (await cacheFile.exists()) {
-      return await cacheFile.json();
-    }
-  } catch (error) {
-    log.warn("Failed to load Executors from cache");
-  }
-  return null;
-}
+  // Load from all sources with priority merge
+  const mergedAgents = await loadWithPriority<Agent>(
+    'agents',
+    loadAgentsFromDirectory,
+    resolvedProjectPath
+  );
 
-/**
- * Load Executors from unified config
- */
-export async function loadExecutors(): Promise<AgentExecutor[]> {
-  const config = await loadConfig();
-  
-  // If no executors in config, use defaults from factory
-  if (config.executors.length === 0) {
-    const executors = await getDefaultExecutors();
-    if (executors.length > 0) {
-      await updateConfig({ executors });
-    }
-    return executors;
-  }
-  
-  return getExecutors(config);
+  // Save to config cache
+  await updateConfig({ agents: mergedAgents });
+
+  log.info(`Synced ${mergedAgents.length} agents to config cache`);
 }

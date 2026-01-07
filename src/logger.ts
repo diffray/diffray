@@ -1,17 +1,18 @@
+/* eslint-disable no-console */
 /**
  * Centralized logging - maximally fast and simple
  */
 
 // ANSI color codes
 const colors = {
-  reset: "\x1b[0m",
-  red: "\x1b[31m",
-  green: "\x1b[32m",
-  yellow: "\x1b[33m",
-  blue: "\x1b[34m",
-  magenta: "\x1b[35m",
-  cyan: "\x1b[36m",
-  gray: "\x1b[90m",
+  reset: '\x1b[0m',
+  red: '\x1b[31m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  blue: '\x1b[34m',
+  magenta: '\x1b[35m',
+  cyan: '\x1b[36m',
+  gray: '\x1b[90m',
 };
 
 /**
@@ -20,28 +21,30 @@ const colors = {
 export const log = {
   // Success messages
   success: (msg: string) => {
-    console.log(`${colors.green}✅ ${msg}${colors.reset}`);
+    console.log(`${colors.green}✓${colors.reset} ${msg}`);
   },
 
   // Error messages
-  error: (msg: string) => {
-    console.error(`${colors.red}❌ ${msg}${colors.reset}`);
+  error: (msg: string, error?: unknown) => {
+    const errorMsg = error ? `${msg} ${error}` : msg;
+    console.error(`${colors.red}✗${colors.reset} ${errorMsg}`);
   },
 
   // Warning messages
-  warn: (msg: string) => {
-    console.warn(`${colors.yellow}⚠️  ${msg}${colors.reset}`);
+  warn: (msg: string, error?: unknown) => {
+    const warnMsg = error ? `${msg} ${error}` : msg;
+    console.warn(`${colors.yellow}!${colors.reset} ${warnMsg}`);
   },
 
   // Info messages
   info: (msg: string) => {
-    console.log(`${colors.blue}ℹ️  ${msg}${colors.reset}`);
+    console.log(`${colors.blue}○${colors.reset} ${msg}`);
   },
 
   // Debug messages (only in verbose mode)
   debug: (msg: string) => {
     if (process.env.DEBUG) {
-      console.log(`${colors.gray}🔍 ${msg}${colors.reset}`);
+      console.log(`${colors.gray}·${colors.reset} ${msg}`);
     }
   },
 
@@ -50,17 +53,29 @@ export const log = {
     console.log(msg);
   },
 
+  // Semantic log methods for pipeline stages
+  load: (msg: string) => console.log(`${colors.cyan}▸${colors.reset} ${msg}`),
+  match: (msg: string) => console.log(`${colors.magenta}◆${colors.reset} ${msg}`),
+  execute: (msg: string) => console.log(`${colors.blue}›${colors.reset} ${msg}`),
+  agent: (msg: string) => console.log(`${colors.cyan}◉${colors.reset} ${msg}`),
+  done: (msg: string) => console.log(`${colors.green}✓${colors.reset} ${msg}`),
+
+  // Semantic log methods for CLI
+  analyze: (msg: string) => console.log(`${colors.blue}○${colors.reset} ${msg}`),
+  run: (msg: string) => console.log(`${colors.green}▶${colors.reset} ${msg}`),
+  stats: (msg: string) => console.log(`   ${msg}`),
+
   // Emoji messages
-  rocket: (msg: string) => console.log(`🚀 ${msg}`),
-  robot: (msg: string) => console.log(`🤖 ${msg}`),
-  chart: (msg: string) => console.log(`📊 ${msg}`),
-  file: (msg: string) => console.log(`📝 ${msg}`),
-  sync: (msg: string) => console.log(`🔄 ${msg}`),
-  lightning: (msg: string) => console.log(`⚡ ${msg}`),
-  sparkles: (msg: string) => console.log(`✨ ${msg}`),
+  rocket: (msg: string) => console.log(`${colors.magenta}▲${colors.reset} ${msg}`),
+  robot: (msg: string) => console.log(`${colors.cyan}◉${colors.reset} ${msg}`),
+  chart: (msg: string) => console.log(`${colors.blue}■${colors.reset} ${msg}`),
+  file: (msg: string) => console.log(`${colors.gray}◇${colors.reset} ${msg}`),
+  sync: (msg: string) => console.log(`${colors.cyan}↻${colors.reset} ${msg}`),
+  lightning: (msg: string) => console.log(`${colors.yellow}⚡${colors.reset} ${msg}`),
+  sparkles: (msg: string) => console.log(`${colors.magenta}✦${colors.reset} ${msg}`),
 
   // Separator
-  separator: (char = "=", length = 80) => {
+  separator: (char = '=', length = 80) => {
     console.log(char.repeat(length));
   },
 
@@ -103,7 +118,7 @@ export function group(title: string, fn: () => void | Promise<void>) {
  * Spinner for long-running operations
  */
 export class Spinner {
-  private frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+  private frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private frameIndex = 0;
   private message: string;
@@ -119,7 +134,7 @@ export class Spinner {
     this.frameIndex = 0;
 
     // Hide cursor
-    process.stdout.write("\x1B[?25l");
+    process.stdout.write('\x1B[?25l');
 
     // Start spinning
     this.intervalId = setInterval(() => {
@@ -136,19 +151,19 @@ export class Spinner {
   succeed(message?: string) {
     this.stop();
     const msg = message || this.message;
-    console.log(`${colors.green}✅${colors.reset} ${msg}`);
+    console.log(`${colors.green}✓${colors.reset} ${msg}`);
   }
 
   fail(message?: string) {
     this.stop();
     const msg = message || this.message;
-    console.log(`${colors.red}❌${colors.reset} ${msg}`);
+    console.log(`${colors.red}✗${colors.reset} ${msg}`);
   }
 
   warn(message?: string) {
     this.stop();
     const msg = message || this.message;
-    console.log(`${colors.yellow}⚠️${colors.reset}  ${msg}`);
+    console.log(`${colors.yellow}!${colors.reset} ${msg}`);
   }
 
   stop() {
@@ -161,8 +176,7 @@ export class Spinner {
     }
 
     // Clear line and show cursor
-    process.stdout.write("\r\x1B[K");
-    process.stdout.write("\x1B[?25h");
+    process.stdout.write('\r\x1B[K');
+    process.stdout.write('\x1B[?25h');
   }
 }
-

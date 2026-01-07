@@ -3,13 +3,13 @@
  */
 
 const colors = {
-  reset: "\x1b[0m",
-  bold: "\x1b[1m",
-  dim: "\x1b[2m",
-  cyan: "\x1b[36m",
-  green: "\x1b[32m",
-  yellow: "\x1b[33m",
-  gray: "\x1b[90m",
+  reset: '\x1b[0m',
+  bold: '\x1b[1m',
+  dim: '\x1b[2m',
+  cyan: '\x1b[36m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  gray: '\x1b[90m',
 };
 
 interface CollapsibleBlock {
@@ -33,7 +33,7 @@ export class CollapsibleOutput {
    * Add a collapsible block
    */
   addBlock(id: string, title: string, content: string): void {
-    const lines = content.split("\n");
+    const lines = content.split('\n');
     const collapsed = lines.length > this.maxPreviewLines;
 
     const block: CollapsibleBlock = {
@@ -53,11 +53,13 @@ export class CollapsibleOutput {
    * Render a single block
    */
   private renderBlock(block: CollapsibleBlock): void {
-    const lines = block.content.split("\n");
+    const lines = block.content.split('\n');
 
     // Header
-    const icon = block.collapsed ? "▶" : "▼";
-    process.stdout.write(`\n${colors.cyan}${icon}${colors.reset} ${colors.bold}${block.title}${colors.reset}\n`);
+    const icon = block.collapsed ? '▶' : '▼';
+    process.stdout.write(
+      `\n${colors.cyan}${icon}${colors.reset} ${colors.bold}${block.title}${colors.reset}\n`
+    );
     this.totalLinesRendered += 2;
 
     if (block.collapsed) {
@@ -115,7 +117,9 @@ export class ProgressiveOutput {
     });
 
     // Render header
-    process.stdout.write(`\n${colors.cyan}▼${colors.reset} ${colors.bold}${title}${colors.reset}\n`);
+    process.stdout.write(
+      `\n${colors.cyan}▼${colors.reset} ${colors.bold}${title}${colors.reset}\n`
+    );
   }
 
   /**
@@ -149,14 +153,14 @@ export class ProgressiveOutput {
 
     // Clear and render visible lines
     for (let i = 0; i < section.maxLines; i++) {
-      process.stdout.write("\r\x1b[K");
+      process.stdout.write('\r\x1b[K');
       if (i < visibleLines.length) {
         const line = visibleLines[i];
         if (line !== undefined) {
           process.stdout.write(line);
         }
       }
-      process.stdout.write("\n");
+      process.stdout.write('\n');
     }
 
     // Show scroll indicator
@@ -173,7 +177,7 @@ export class ProgressiveOutput {
     const section = this.sections.get(id);
     if (!section) return;
 
-    process.stdout.write("\n");
+    process.stdout.write('\n');
   }
 
   /**
@@ -188,15 +192,18 @@ export class ProgressiveOutput {
 /**
  * Truncate long text with ellipsis
  */
-export function truncateText(text: string, maxLines: number): { preview: string; truncated: boolean; total: number } {
-  const lines = text.split("\n");
+export function truncateText(
+  text: string,
+  maxLines: number
+): { preview: string; truncated: boolean; total: number } {
+  const lines = text.split('\n');
   const total = lines.length;
 
   if (total <= maxLines) {
     return { preview: text, truncated: false, total };
   }
 
-  const preview = lines.slice(0, maxLines).join("\n");
+  const preview = lines.slice(0, maxLines).join('\n');
   return { preview, truncated: true, total };
 }
 
@@ -208,12 +215,14 @@ export function formatLargeBlock(title: string, content: string, maxLines = 10):
   const output: string[] = [];
 
   // Header with icon and title
-  const icon = truncated ? "▶" : "▼";
-  output.push(`${colors.cyan}${icon}${colors.reset} ${colors.bold}${title}${colors.reset} ${colors.dim}(${total} lines)${colors.reset}`);
-  output.push("");
+  const icon = truncated ? '▶' : '▼';
+  output.push(
+    `${colors.cyan}${icon}${colors.reset} ${colors.bold}${title}${colors.reset} ${colors.dim}(${total} lines)${colors.reset}`
+  );
+  output.push('');
 
   // Content preview
-  const lines = preview.split("\n");
+  const lines = preview.split('\n');
   for (const line of lines) {
     output.push(`  ${colors.dim}${line}${colors.reset}`);
   }
@@ -221,15 +230,14 @@ export function formatLargeBlock(title: string, content: string, maxLines = 10):
   // Truncation indicator
   if (truncated) {
     const remaining = total - maxLines;
-    output.push("");
+    output.push('');
     output.push(`  ${colors.yellow}▼ ${remaining} more lines hidden${colors.reset}`);
     output.push(`  ${colors.dim}Scroll down to see full content${colors.reset}`);
   }
 
-  output.push("");
-  output.push(colors.dim + "─".repeat(80) + colors.reset);
-  output.push("");
+  output.push('');
+  output.push(colors.dim + '─'.repeat(80) + colors.reset);
+  output.push('');
 
-  return output.join("\n");
+  return output.join('\n');
 }
-

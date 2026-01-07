@@ -2,19 +2,19 @@
  * Stage registry and configuration
  */
 
-import { join } from "path";
-import { homedir } from "os";
-import { z } from "zod";
-import type { Stage } from "../types";
-import { createLoadRulesStage } from "./load-rules";
-import { createMatchRulesStage } from "./match-rules";
-import { createExecuteAgentsStage } from "./execute-agents";
-import { createAggregateResultsStage } from "./aggregate-results";
-import { createDeduplicationStage } from "./deduplication";
-import { createValidationStage } from "./validation";
+import { join } from 'path';
+import { homedir } from 'os';
+import { z } from 'zod';
+import type { Stage } from '../types';
+import { createLoadRulesStage } from './load-rules';
+import { createMatchRulesStage } from './match-rules';
+import { createExecuteAgentsStage } from './execute-agents';
+import { createAggregateResultsStage } from './aggregate-results';
+import { createDeduplicationStage } from './deduplication';
+import { createValidationStage } from './validation';
 
-const DIFFRAY_DIR = join(homedir(), ".diffray");
-const STAGES_CONFIG_FILE = join(DIFFRAY_DIR, "stages.json");
+const DIFFRAY_DIR = join(homedir(), '.diffray');
+const STAGES_CONFIG_FILE = join(DIFFRAY_DIR, 'stages.json');
 
 /**
  * Stage configuration schema
@@ -35,12 +35,12 @@ export type StagesConfig = z.infer<typeof StagesConfigSchema>;
  * Built-in stage creators
  */
 const BUILTIN_STAGES = {
-  "load-rules": createLoadRulesStage,
-  "match-rules": createMatchRulesStage,
-  "execute-agents": createExecuteAgentsStage,
-  "aggregate-results": createAggregateResultsStage,
-  "deduplication": createDeduplicationStage,
-  "validation": createValidationStage,
+  'load-rules': createLoadRulesStage,
+  'match-rules': createMatchRulesStage,
+  'execute-agents': createExecuteAgentsStage,
+  'aggregate-results': createAggregateResultsStage,
+  deduplication: createDeduplicationStage,
+  validation: createValidationStage,
 };
 
 /**
@@ -77,7 +77,7 @@ export async function getStages(): Promise<Stage[]> {
   // Create all built-in stages
   for (const [id, creator] of Object.entries(BUILTIN_STAGES)) {
     const stage = creator();
-    
+
     // Apply configuration
     const stageConfig = config.stages.find((s) => s.id === id);
     if (stageConfig) {
@@ -112,7 +112,7 @@ export function getDefaultStages(): Stage[] {
  */
 export async function toggleStage(stageId: string, enabled: boolean): Promise<void> {
   const config = await loadStagesConfig();
-  
+
   const existing = config.stages.find((s) => s.id === stageId);
   if (existing) {
     existing.enabled = enabled;
@@ -128,7 +128,7 @@ export async function toggleStage(stageId: string, enabled: boolean): Promise<vo
  */
 export async function setStageOrder(stageId: string, order: number): Promise<void> {
   const config = await loadStagesConfig();
-  
+
   const existing = config.stages.find((s) => s.id === stageId);
   if (existing) {
     existing.order = order;
@@ -138,4 +138,3 @@ export async function setStageOrder(stageId: string, order: number): Promise<voi
 
   await saveStagesConfig(config);
 }
-

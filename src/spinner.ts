@@ -1,17 +1,17 @@
 /**
- * Simple spinner without external dependencies
+ * Spinner without external dependencies
  */
 
-const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const colors = {
-  cyan: "\x1b[36m",
-  green: "\x1b[32m",
-  red: "\x1b[31m",
-  yellow: "\x1b[33m",
-  reset: "\x1b[0m",
+  cyan: '\x1b[36m',
+  green: '\x1b[32m',
+  red: '\x1b[31m',
+  yellow: '\x1b[33m',
+  reset: '\x1b[0m',
 };
 
-export class SimpleSpinner {
+export class Spinner {
   private text: string;
   private frameIndex: number = 0;
   private intervalId: ReturnType<typeof setInterval> | null = null;
@@ -23,12 +23,12 @@ export class SimpleSpinner {
 
   start(): void {
     if (this.isSpinning) return;
-    
+
     this.isSpinning = true;
     this.frameIndex = 0;
 
     // Hide cursor
-    process.stdout.write("\x1b[?25l");
+    process.stdout.write('\x1b[?25l');
 
     this.intervalId = setInterval(() => {
       const frame = frames[this.frameIndex];
@@ -42,19 +42,19 @@ export class SimpleSpinner {
   success(message?: string): void {
     this.stop();
     const text = message || this.text;
-    process.stdout.write(`\r${colors.green}✅${colors.reset} ${text}\n`);
+    process.stdout.write(`\r${colors.green}✓${colors.reset} ${text}\n`);
   }
 
   error(message?: string): void {
     this.stop();
     const text = message || this.text;
-    process.stdout.write(`\r${colors.red}❌${colors.reset} ${text}\n`);
+    process.stdout.write(`\r${colors.red}✗${colors.reset} ${text}\n`);
   }
 
   warn(message?: string): void {
     this.stop();
     const text = message || this.text;
-    process.stdout.write(`\r${colors.yellow}⚠️${colors.reset}  ${text}\n`);
+    process.stdout.write(`\r${colors.yellow}!${colors.reset} ${text}\n`);
   }
 
   update(text: string): void {
@@ -65,15 +65,15 @@ export class SimpleSpinner {
     if (!this.isSpinning) return;
 
     this.isSpinning = false;
-    
+
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
 
     // Clear line and show cursor
-    process.stdout.write("\r\x1b[K");
-    process.stdout.write("\x1b[?25h");
+    process.stdout.write('\r\x1b[K');
+    process.stdout.write('\x1b[?25h');
   }
 }
 
@@ -81,14 +81,15 @@ export class SimpleSpinner {
  * Multi-spinner for parallel operations
  */
 export class MultiSpinner {
-  private spinners: Map<string, { text: string; status: "running" | "success" | "error" }> = new Map();
+  private spinners: Map<string, { text: string; status: 'running' | 'success' | 'error' }> =
+    new Map();
   private frameIndex: number = 0;
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private isRunning: boolean = false;
 
   add(id: string, text: string): void {
-    this.spinners.set(id, { text, status: "running" });
-    
+    this.spinners.set(id, { text, status: 'running' });
+
     if (!this.isRunning) {
       this.start();
     }
@@ -97,7 +98,7 @@ export class MultiSpinner {
   success(id: string, message?: string): void {
     const spinner = this.spinners.get(id);
     if (spinner) {
-      spinner.status = "success";
+      spinner.status = 'success';
       if (message) spinner.text = message;
       this.render();
       this.checkComplete();
@@ -107,7 +108,7 @@ export class MultiSpinner {
   error(id: string, message?: string): void {
     const spinner = this.spinners.get(id);
     if (spinner) {
-      spinner.status = "error";
+      spinner.status = 'error';
       if (message) spinner.text = message;
       this.render();
       this.checkComplete();
@@ -116,12 +117,12 @@ export class MultiSpinner {
 
   private start(): void {
     if (this.isRunning) return;
-    
+
     this.isRunning = true;
     this.frameIndex = 0;
 
     // Hide cursor
-    process.stdout.write("\x1b[?25l");
+    process.stdout.write('\x1b[?25l');
 
     this.intervalId = setInterval(() => {
       this.frameIndex = (this.frameIndex + 1) % frames.length;
@@ -137,24 +138,22 @@ export class MultiSpinner {
     }
 
     // Render each spinner
-    for (const [id, spinner] of this.spinners) {
-      process.stdout.write("\r\x1b[K"); // Clear line
-      
-      if (spinner.status === "running") {
+    for (const [_id, spinner] of this.spinners) {
+      process.stdout.write('\r\x1b[K'); // Clear line
+
+      if (spinner.status === 'running') {
         const frame = frames[this.frameIndex];
         process.stdout.write(`${colors.cyan}${frame}${colors.reset} ${spinner.text}\n`);
-      } else if (spinner.status === "success") {
-        process.stdout.write(`${colors.green}✅${colors.reset} ${spinner.text}\n`);
-      } else if (spinner.status === "error") {
-        process.stdout.write(`${colors.red}❌${colors.reset} ${spinner.text}\n`);
+      } else if (spinner.status === 'success') {
+        process.stdout.write(`${colors.green}✓${colors.reset} ${spinner.text}\n`);
+      } else if (spinner.status === 'error') {
+        process.stdout.write(`${colors.red}✗${colors.reset} ${spinner.text}\n`);
       }
     }
   }
 
   private checkComplete(): void {
-    const allComplete = Array.from(this.spinners.values()).every(
-      (s) => s.status !== "running"
-    );
+    const allComplete = Array.from(this.spinners.values()).every((s) => s.status !== 'running');
 
     if (allComplete) {
       this.stop();
@@ -165,14 +164,13 @@ export class MultiSpinner {
     if (!this.isRunning) return;
 
     this.isRunning = false;
-    
+
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
 
     // Show cursor
-    process.stdout.write("\x1b[?25h");
+    process.stdout.write('\x1b[?25h');
   }
 }
-

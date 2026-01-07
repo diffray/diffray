@@ -1,0 +1,54 @@
+# Output Format
+
+Return your findings as a **JSON array** with the following structure:
+
+```json
+[
+  {
+    "file": "path/to/file.ts",
+    "lineStart": 10,
+    "lineEnd": 15,
+    "severity": "error|warning|info|suggestion",
+    "shortDescription": "Brief one-line description",
+    "fullDescription": "Detailed description of the issue",
+    "suggestion": "How to fix this issue (optional)"
+  }
+]
+```
+
+## Field Descriptions:
+
+- **file**: Relative path to the file containing the issue
+- **lineStart**: Starting line number of the issue
+- **lineEnd**: Ending line number of the issue (can be same as lineStart)
+- **severity**: One of: `error`, `warning`, `info`, `suggestion`
+- **shortDescription**: Brief one-line summary of the issue
+- **fullDescription**: Detailed explanation of what's wrong
+- **suggestion**: (Optional) Recommendation on how to fix the issue
+
+## Important Rules:
+
+1. **Return empty array if no issues found**: `[]`
+2. **Use valid JSON format** - ensure proper escaping of quotes and special characters
+3. **Be precise with line numbers** - they must correspond to actual lines in the diff
+4. **Only report actual issues** - do NOT report:
+   - Code that is already correct
+   - Positive observations or compliments
+   - "No action needed" type comments
+   - Documentation improvements that are already good
+
+## Example:
+
+```json
+[
+  {
+    "file": "src/utils/validator.ts",
+    "lineStart": 42,
+    "lineEnd": 45,
+    "severity": "error",
+    "shortDescription": "Potential null pointer dereference",
+    "fullDescription": "The 'user' object may be null at this point, but is accessed without a null check. This will cause a runtime error if user is null.",
+    "suggestion": "Add a null check before accessing user properties: if (user) { ... }"
+  }
+]
+```

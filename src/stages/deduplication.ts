@@ -2,24 +2,24 @@
  * Stage 4: Deduplication
  */
 
-import type { Stage, StageResult, PipelineContext } from "../types";
-import { log } from "../logger";
+import type { Stage, StageResult, PipelineContext } from '../types';
+import { log } from '../logger';
 
 export function createDeduplicationStage(): Stage {
   return {
-    id: "deduplication",
-    name: "Deduplication",
-    description: "Remove duplicate results and issues",
+    id: 'deduplication',
+    name: 'Deduplication',
+    description: 'Remove duplicate results and issues',
     enabled: true,
     order: 4,
     execute: async (context: PipelineContext): Promise<StageResult> => {
       const startTime = Date.now();
       const beforeResults = context.results.length;
 
-      // Step 1: Deduplicate results by subAgentId:executorId
+      // Step 1: Deduplicate results by agentId:executor
       const seen = new Set<string>();
       context.results = context.results.filter((result) => {
-        const key = `${result.subAgentId}:${result.executorId}`;
+        const key = `${result.agentId}:${result.executor}`;
         if (seen.has(key)) {
           return false;
         }
@@ -59,12 +59,11 @@ export function createDeduplicationStage(): Stage {
       }
 
       return {
-        stageId: "deduplication",
-        stageName: "Deduplication",
+        stageId: 'deduplication',
+        stageName: 'Deduplication',
         success: true,
         duration: Date.now() - startTime,
       };
     },
   };
 }
-

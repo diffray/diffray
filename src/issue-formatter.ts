@@ -2,18 +2,18 @@
  * Format issues for display
  */
 
-import type { Issue, IssueSeverity } from "./types";
+import type { Issue, IssueSeverity } from './types';
 
 const colors = {
-  reset: "\x1b[0m",
-  bold: "\x1b[1m",
-  dim: "\x1b[2m",
-  red: "\x1b[31m",
-  yellow: "\x1b[33m",
-  blue: "\x1b[34m",
-  cyan: "\x1b[36m",
-  green: "\x1b[32m",
-  gray: "\x1b[90m",
+  reset: '\x1b[0m',
+  bold: '\x1b[1m',
+  dim: '\x1b[2m',
+  red: '\x1b[31m',
+  yellow: '\x1b[33m',
+  blue: '\x1b[34m',
+  cyan: '\x1b[36m',
+  green: '\x1b[32m',
+  gray: '\x1b[90m',
 };
 
 /**
@@ -21,13 +21,13 @@ const colors = {
  */
 function getSeverityColor(severity: IssueSeverity): string {
   switch (severity) {
-    case "error":
+    case 'error':
       return colors.red;
-    case "warning":
+    case 'warning':
       return colors.yellow;
-    case "info":
+    case 'info':
       return colors.blue;
-    case "suggestion":
+    case 'suggestion':
       return colors.cyan;
   }
 }
@@ -37,14 +37,14 @@ function getSeverityColor(severity: IssueSeverity): string {
  */
 function getSeverityIcon(severity: IssueSeverity): string {
   switch (severity) {
-    case "error":
-      return "❌";
-    case "warning":
-      return "⚠️";
-    case "info":
-      return "ℹ️";
-    case "suggestion":
-      return "💡";
+    case 'error':
+      return '✗';
+    case 'warning':
+      return '!';
+    case 'info':
+      return '○';
+    case 'suggestion':
+      return '◇';
   }
 }
 
@@ -63,30 +63,32 @@ export function formatIssue(issue: Issue, compact = false): string {
     );
   } else {
     // Full format with all details
-    output.push("");
+    output.push('');
     output.push(`${icon} ${color}${colors.bold}${issue.severity.toUpperCase()}${colors.reset}`);
-    output.push(`${colors.bold}${issue.file}${colors.reset}:${colors.cyan}${issue.lineStart}${issue.lineEnd !== issue.lineStart ? `-${issue.lineEnd}` : ""}${colors.reset}`);
-    output.push("");
+    output.push(
+      `${colors.bold}${issue.file}${colors.reset}:${colors.cyan}${issue.lineStart}${issue.lineEnd !== issue.lineStart ? `-${issue.lineEnd}` : ''}${colors.reset}`
+    );
+    output.push('');
     output.push(`${colors.bold}${issue.shortDescription}${colors.reset}`);
-    
+
     if (issue.fullDescription && issue.fullDescription !== issue.shortDescription) {
-      output.push("");
+      output.push('');
       output.push(`${colors.dim}${issue.fullDescription}${colors.reset}`);
     }
 
     if (issue.suggestion) {
-      output.push("");
-      output.push(`${colors.green}💡 Suggestion:${colors.reset}`);
+      output.push('');
+      output.push(`${colors.green}→ Suggestion:${colors.reset}`);
       output.push(`${colors.dim}${issue.suggestion}${colors.reset}`);
     }
 
-    output.push("");
+    output.push('');
     output.push(`${colors.gray}From: ${issue.agentName}${colors.reset}`);
-    output.push("");
-    output.push(colors.gray + "─".repeat(80) + colors.reset);
+    output.push('');
+    output.push(colors.gray + '─'.repeat(80) + colors.reset);
   }
 
-  return output.join("\n");
+  return output.join('\n');
 }
 
 /**
@@ -94,22 +96,22 @@ export function formatIssue(issue: Issue, compact = false): string {
  */
 export function formatIssues(issues: Issue[], compact = false): string {
   if (issues.length === 0) {
-    return `${colors.green}✅ No issues found${colors.reset}`;
+    return `${colors.green}✓ No issues found${colors.reset}`;
   }
 
   const output: string[] = [];
 
   if (!compact) {
-    output.push("");
-    output.push(`${colors.bold}📋 Found ${issues.length} issue(s)${colors.reset}`);
-    output.push("");
+    output.push('');
+    output.push(`${colors.bold}Found ${issues.length} issue(s)${colors.reset}`);
+    output.push('');
   }
 
   for (const issue of issues) {
     output.push(formatIssue(issue, compact));
   }
 
-  return output.join("\n");
+  return output.join('\n');
 }
 
 /**
@@ -132,26 +134,30 @@ export function groupIssuesByFile(issues: Issue[]): Map<string, Issue[]> {
  */
 export function formatIssuesByFile(issues: Issue[]): string {
   if (issues.length === 0) {
-    return `${colors.green}✅ No issues found${colors.reset}`;
+    return `${colors.green}✓ No issues found${colors.reset}`;
   }
 
   const grouped = groupIssuesByFile(issues);
   const output: string[] = [];
 
-  output.push("");
-  output.push(`${colors.bold}📋 Found ${issues.length} issue(s) in ${grouped.size} file(s)${colors.reset}`);
-  output.push("");
+  output.push('');
+  output.push(
+    `${colors.bold}Found ${issues.length} issue(s) in ${grouped.size} file(s)${colors.reset}`
+  );
+  output.push('');
 
   for (const [file, fileIssues] of grouped) {
-    output.push(`${colors.bold}${colors.cyan}📄 ${file}${colors.reset} ${colors.dim}(${fileIssues.length} issue(s))${colors.reset}`);
-    output.push("");
+    output.push(
+      `${colors.bold}${colors.cyan}${file}${colors.reset} ${colors.dim}(${fileIssues.length} issue(s))${colors.reset}`
+    );
+    output.push('');
 
     for (const issue of fileIssues) {
       output.push(formatIssue(issue, false));
     }
   }
 
-  return output.join("\n");
+  return output.join('\n');
 }
 
 /**
@@ -187,10 +193,10 @@ export function formatAsJSON(
   agentsSucceeded: number,
   filesAnalyzed: number
 ): string {
-  const errorCount = issues.filter((i) => i.severity === "error").length;
-  const warningCount = issues.filter((i) => i.severity === "warning").length;
-  const infoCount = issues.filter((i) => i.severity === "info").length;
-  const suggestionCount = issues.filter((i) => i.severity === "suggestion").length;
+  const errorCount = issues.filter((i) => i.severity === 'error').length;
+  const warningCount = issues.filter((i) => i.severity === 'warning').length;
+  const infoCount = issues.filter((i) => i.severity === 'info').length;
+  const suggestionCount = issues.filter((i) => i.severity === 'suggestion').length;
 
   // Group issues by file
   const grouped = groupIssuesByFile(issues);
@@ -220,4 +226,3 @@ export function formatAsJSON(
 
   return JSON.stringify(output, null, 2);
 }
-

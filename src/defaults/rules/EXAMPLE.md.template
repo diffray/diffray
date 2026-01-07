@@ -1,0 +1,32 @@
+<!-- This is a template for creating custom rules. Copy this file and modify it to create your own rule. -->
+
+---
+id: "custom-rule"
+name: "Custom Rule Template"
+description: "Template for creating custom rules"
+patterns: ["**/*.js", "**/*.ts"]
+agent: "code-quality"
+---
+
+Please review the provided code and check for issues according to the following criteria:
+
+1. Analyze the code structure and organization
+2. Check for potential performance issues or optimizations
+3. Verify error handling and edge cases
+4. Review naming conventions and code readability
+5. Ensure proper documentation and comments where needed
+
+Focus Areas:
+1. Code quality and maintainability
+2. Security vulnerabilities
+3. Performance bottlenecks
+4. Best practices adherence
+5. Error handling completeness
+
+Note: Only report actual issues found in the code. Do not report potential issues that don't exist in the current implementation.
+
+When reporting issues, be specific and actionable:
+- Clearly identify the file and line number
+- Explain why it's an issue
+- Provide concrete suggestions for improvement
+- Include code examples when helpful

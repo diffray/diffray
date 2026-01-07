@@ -1,60 +1,30 @@
-# Dependencies (bun install)
+# Dependencies
 node_modules/
-.pnp
-.pnp.js
 
 # Bun
 .bun/
 bun.lockb
 
 # Build outputs
-out/
 dist/
 build/
-*.tgz
-*.js.map
-*.d.ts.map
-
-# Compiled binary
-diffray
-
-# TypeScript
 *.tsbuildinfo
-
-# Code coverage
-coverage/
-*.lcov
-.nyc_output/
-
-# Logs
-logs/
-*.log
-npm-debug.log*
-yarn-debug.log*
-pnpm-debug.log*
-lerna-debug.log*
-report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # Environment variables
 .env
 .env.local
-.env.development.local
-.env.test.local
-.env.production.local
+
+# Logs
+*.log
 
 # Caches
-.eslintcache
 .cache/
-.stylelintcache
 
 # IDEs
 .idea/
 .vscode/
 *.swp
 *.swo
-*~
-*.sublime-project
-*.sublime-workspace
 
 # Claude Code
 .claude/
@@ -62,33 +32,8 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 # OS files
 .DS_Store
 Thumbs.db
-Desktop.ini
 
 # Temporary files
 tmp/
 temp/
 *.tmp
-*.seed
-*.pid
-*.pid.lock
-
-# Optional npm cache
-.npm
-
-# Optional REPL history
-.node_repl_history
-
-# Yarn
-.yarn-integrity
-yarn-debug.log*
-yarn-error.log*
-
-# Testing
-.vscode-test
-
-# Misc
-.tern-port
-.serverless/
-.fusebox/
-.dynamodb/
-.parcel-cache/

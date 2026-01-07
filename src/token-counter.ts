@@ -26,7 +26,7 @@ export function estimateTokens(text: string): number {
  * Get token counter name (for verbose output)
  */
 export function getTokenCounterName(): string {
-  return "simple (1 token ≈ 4 chars)";
+  return 'simple (1 token ≈ 4 chars)';
 }
 
 // Example: Using tiktoken for exact counting
@@ -45,4 +45,3 @@ export function getTokenCounterName(): string {
   return "tiktoken (gpt-4)";
 }
 */
-

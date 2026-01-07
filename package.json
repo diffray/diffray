@@ -2,24 +2,41 @@
   "name": "diffray",
   "version": "0.1.0",
   "description": "AI-powered code review CLI for git changes",
+  "author": "Ilya Strelov <strelov1@gmail.com>",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "diffray": "./bin/diffray.ts"
   },
   "scripts": {
     "dev": "bun run ./bin/diffray.ts",
-    "build": "bun build ./bin/diffray.ts --compile --outfile diffray",
+    "build": "bun build ./bin/diffray.ts --compile --target=bun --minify --outfile dist/diffray",
     "link": "bun link",
-    "unlink": "bun unlink"
+    "unlink": "bun unlink",
+    "ts-check": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@eslint/js": "^9.39.2",
+    "@types/bun": "latest",
+    "@typescript-eslint/eslint-plugin": "^8.52.0",
+    "@typescript-eslint/parser": "^8.52.0",
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.4",
+    "prettier": "^3.7.4"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
+    "citty": "^0.1.6",
+    "diff": "^8.0.2",
     "glob": "^13.0.0",
+    "isomorphic-git": "^1.36.1",
     "zod": "^3.22.4"
   }
 }

@@ -3,9 +3,17 @@
  * Validates issues found by agents using an LLM to filter out false positives
  */
 
-import type { Stage, StageResult, PipelineContext, Issue, ExecutionContext, Agent, IssueSeverity } from "../types";
-import { log, Spinner } from "../logger";
-import { executorFactory } from "../executors/factory";
+import type {
+  Stage,
+  StageResult,
+  PipelineContext,
+  Issue,
+  ExecutionContext,
+  Agent,
+  IssueSeverity,
+} from '../types';
+import { log, Spinner } from '../logger';
+import { executorFactory } from '../executors/factory';
 
 /**
  * System prompt for validation agent
@@ -81,18 +89,21 @@ function parseValidatedIssues(output: string): Issue[] {
       return [];
     }
 
-    return data.map((item: any) => ({
-      file: item.file || "",
-      lineStart: item.lineStart || item.line || 0,
-      lineEnd: item.lineEnd || item.lineStart || item.line || 0,
-      severity: (item.severity || "info") as IssueSeverity,
-      shortDescription: item.shortDescription || item.short || item.message || "",
-      fullDescription: item.fullDescription || item.description || item.shortDescription || "",
-      suggestion: item.suggestion,
-      agentId: item.agentId || "unknown",
-      agentName: item.agentName || "Unknown Agent",
-    })).filter((issue: Issue) => issue.file && issue.shortDescription && issue.lineStart > 0);
-  } catch (error) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (data as any[])
+      .map((item) => ({
+        file: item.file || '',
+        lineStart: item.lineStart || item.line || 0,
+        lineEnd: item.lineEnd || item.lineStart || item.line || 0,
+        severity: (item.severity || 'info') as IssueSeverity,
+        shortDescription: item.shortDescription || item.short || item.message || '',
+        fullDescription: item.fullDescription || item.description || item.shortDescription || '',
+        suggestion: item.suggestion,
+        agentId: item.agentId || 'unknown',
+        agentName: item.agentName || 'Unknown Agent',
+      }))
+      .filter((issue: Issue) => issue.file && issue.shortDescription && issue.lineStart > 0);
+  } catch {
     return [];
   }
 }
@@ -102,9 +113,9 @@ function parseValidatedIssues(output: string): Issue[] {
  */
 export function createValidationStage(): Stage {
   return {
-    id: "validation",
-    name: "Validation",
-    description: "Validate issues and filter out false positives",
+    id: 'validation',
+    name: 'Validation',
+    description: 'Validate issues and filter out false positives',
     enabled: true,
     order: 5,
     execute: async (context: PipelineContext): Promise<StageResult> => {
@@ -118,11 +129,11 @@ export function createValidationStage(): Stage {
 
       if (allIssues.length === 0) {
         if (!context.quiet) {
-          log.sync("No issues to validate");
+          log.sync('No issues to validate');
         }
         return {
-          stageId: "validation",
-          stageName: "Validation",
+          stageId: 'validation',
+          stageName: 'Validation',
           success: true,
           duration: Date.now() - startTime,
         };
@@ -138,18 +149,20 @@ export function createValidationStage(): Stage {
 
       if (!executor) {
         if (!context.quiet) {
-          log.warn("No enabled executor found for validation, skipping validation");
+          log.warn('No enabled executor found for validation, skipping validation');
         }
         return {
-          stageId: "validation",
-          stageName: "Validation",
+          stageId: 'validation',
+          stageName: 'Validation',
           success: true,
           duration: Date.now() - startTime,
         };
       }
 
       // Create spinner for validation (only if not in quiet mode)
-      const spinner: Spinner | null = context.quiet ? null : new Spinner(`Validating ${allIssues.length} issue(s)...`);
+      const spinner: Spinner | null = context.quiet
+        ? null
+        : new Spinner(`Validating ${allIssues.length} issue(s)...`);
 
       try {
         // Convert issues to JSON
@@ -157,18 +170,18 @@ export function createValidationStage(): Stage {
 
         // Create a dummy Agent for validation
         const validationAgent: Agent = {
-          id: "validation-agent",
-          name: "Validation Agent",
-          description: "Validates issues found by other agents",
+          id: 'validation-agent',
+          name: 'Validation Agent',
+          description: 'Validates issues found by other agents',
           systemPrompt: VALIDATION_SYSTEM_PROMPT,
           enabled: true,
           order: 999,
-          executorId: executor.id,
+          executor: executor.id,
         };
 
         // Create execution context
         const execContext: ExecutionContext = {
-          subAgent: validationAgent,
+          agent: validationAgent,
           executor,
           input: issuesJson,
           systemPrompt: VALIDATION_SYSTEM_PROMPT,
@@ -176,12 +189,12 @@ export function createValidationStage(): Stage {
         };
 
         if (context.verbose && !context.quiet) {
-          log.plain(`\n📝 Validation prompt:`);
+          log.plain(`\nValidation prompt:`);
           log.plain(`   Executor: ${executor.name}`);
           log.plain(`   Issues to validate: ${allIssues.length}`);
-          log.plain("─".repeat(80));
+          log.plain('─'.repeat(80));
           log.plain(`${VALIDATION_SYSTEM_PROMPT}\n\n# Input:\n${issuesJson}`);
-          log.plain("─".repeat(80));
+          log.plain('─'.repeat(80));
           log.newline();
         }
 
@@ -198,8 +211,8 @@ export function createValidationStage(): Stage {
             spinner.fail(`Validation failed: ${result.error}`);
           }
           return {
-            stageId: "validation",
-            stageName: "Validation",
+            stageId: 'validation',
+            stageName: 'Validation',
             success: false,
             duration: Date.now() - startTime,
             error: result.error,
@@ -211,17 +224,16 @@ export function createValidationStage(): Stage {
 
         // Update results with validated issues
         const validatedIssueSet = new Set(
-          validatedIssues.map((issue) => `${issue.file}:${issue.lineStart}:${issue.lineEnd}:${issue.agentId}`)
+          validatedIssues.map(
+            (issue) => `${issue.file}:${issue.lineStart}:${issue.lineEnd}:${issue.agentId}`
+          )
         );
 
-        let totalRemoved = 0;
         context.results.forEach((result) => {
-          const beforeCount = result.issues.length;
           result.issues = result.issues.filter((issue) => {
             const key = `${issue.file}:${issue.lineStart}:${issue.lineEnd}:${issue.agentId}`;
             return validatedIssueSet.has(key);
           });
-          totalRemoved += beforeCount - result.issues.length;
         });
 
         const validCount = validatedIssues.length;
@@ -230,12 +242,14 @@ export function createValidationStage(): Stage {
         // Stop spinner with success message
         const duration = Date.now() - startTime;
         if (spinner) {
-          spinner.succeed(`Validation complete: ${validCount} valid, ${invalidCount} filtered out (${duration}ms)`);
+          spinner.succeed(
+            `Validation complete: ${validCount} valid, ${invalidCount} filtered out (${duration}ms)`
+          );
         }
 
         return {
-          stageId: "validation",
-          stageName: "Validation",
+          stageId: 'validation',
+          stageName: 'Validation',
           success: true,
           duration,
         };
@@ -245,8 +259,8 @@ export function createValidationStage(): Stage {
           spinner.fail(`Validation error: ${errorMessage}`);
         }
         return {
-          stageId: "validation",
-          stageName: "Validation",
+          stageId: 'validation',
+          stageName: 'Validation',
           success: false,
           duration: Date.now() - startTime,
           error: errorMessage,
@@ -255,4 +269,3 @@ export function createValidationStage(): Stage {
     },
   };
 }
-

@@ -2,14 +2,14 @@
  * Stage 3: Aggregate Results
  */
 
-import type { Stage, StageResult, PipelineContext } from "../types";
-import { log } from "../logger";
+import type { Stage, StageResult, PipelineContext } from '../types';
+import { log } from '../logger';
 
 export function createAggregateResultsStage(): Stage {
   return {
-    id: "aggregate-results",
-    name: "Aggregate Results",
-    description: "Collect results",
+    id: 'aggregate-results',
+    name: 'Aggregate Results',
+    description: 'Collect results',
     enabled: true,
     order: 3,
     execute: async (context: PipelineContext): Promise<StageResult> => {
@@ -22,12 +22,11 @@ export function createAggregateResultsStage(): Stage {
       }
 
       return {
-        stageId: "aggregate-results",
-        stageName: "Aggregate Results",
+        stageId: 'aggregate-results',
+        stageName: 'Aggregate Results',
         success: true,
         duration: Date.now() - startTime,
       };
     },
   };
 }
-

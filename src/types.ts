@@ -4,7 +4,7 @@
 
 export interface GitDiff {
   file: string;
-  status: "modified" | "added" | "deleted" | "renamed";
+  status: 'modified' | 'added' | 'deleted' | 'renamed';
   diff: string;
   additions: number;
   deletions: number;
@@ -14,7 +14,7 @@ export interface GitDiff {
 /**
  * Issue severity levels
  */
-export type IssueSeverity = "error" | "warning" | "info" | "suggestion";
+export type IssueSeverity = 'error' | 'warning' | 'info' | 'suggestion';
 
 /**
  * Code issue found by an agent
@@ -45,13 +45,13 @@ export interface Agent {
   order: number;
 
   // Which executor will execute this task
-  executorId: string;
+  executor: string;
 }
 
 /**
  * Agent Executor Type - how the agent is executed
  */
-export type AgentExecutorType = "llm-api" | "cli" | "mcp";
+export type AgentExecutorType = 'llm-api' | 'cli' | 'mcp';
 
 /**
  * Base Agent Executor - isolated executor
@@ -69,8 +69,8 @@ export interface BaseAgentExecutor {
  * LLM API Agent Executor - execution via API
  */
 export interface LLMAPIAgentExecutor extends BaseAgentExecutor {
-  type: "llm-api";
-  provider: "anthropic" | "openai" | "custom";
+  type: 'llm-api';
+  provider: 'anthropic' | 'openai' | 'custom';
   model: string; // e.g., "claude-3-5-sonnet", "gpt-4"
   apiKey?: string;
   baseUrl?: string;
@@ -82,7 +82,7 @@ export interface LLMAPIAgentExecutor extends BaseAgentExecutor {
  * CLI Agent Executor - execution via CLI
  */
 export interface CLIAgentExecutor extends BaseAgentExecutor {
-  type: "cli";
+  type: 'cli';
   command: string; // e.g., "auggie", "claude"
   args?: string[]; // Additional arguments
   env?: Record<string, string>; // Environment variables
@@ -93,7 +93,7 @@ export interface CLIAgentExecutor extends BaseAgentExecutor {
  * MCP Agent Executor - execution via MCP
  */
 export interface MCPAgentExecutor extends BaseAgentExecutor {
-  type: "mcp";
+  type: 'mcp';
   serverName: string; // MCP server name
   toolName: string; // Tool name in MCP
   config?: Record<string, unknown>; // MCP configuration
@@ -121,7 +121,7 @@ export interface ExecutionContext {
 export interface ExecutionResult {
   agentId: string;
   agentName: string;
-  executorId: string;
+  executor: string;
   executorName: string;
   success: boolean;
   output: string;
@@ -140,14 +140,14 @@ export interface PipelineContext {
     branch?: string;
   };
   verbose?: boolean;
-  quiet?: boolean;  // Suppress all logs (for JSON output mode)
-  matchedRules?: MatchedRule[];  // Matched rules from match-rules stage
+  quiet?: boolean; // Suppress all logs (for JSON output mode)
+  matchedRules?: MatchedRule[]; // Matched rules from match-rules stage
 }
 
 export interface AgentResult {
   agentId: string;
   agentName: string;
-  executorId: string;
+  executor: string;
   executorName: string;
   success: boolean;
   output: string;
@@ -195,9 +195,9 @@ export interface Rule {
   id: string;
   name: string;
   description: string;
-  patterns: string[];  // Array of glob patterns
+  patterns: string[]; // Array of glob patterns
   agent: string;
-  prompt: string;  // Main prompt - what to check for
+  prompt: string; // Main prompt - what to check for
 }
 
 /**
@@ -208,4 +208,3 @@ export interface MatchedRule {
   files: string[];
   agent: Agent;
 }
-
