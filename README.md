@@ -6,8 +6,8 @@
 
 **Agent is an abstraction** - it can be either:
 
-- 🤖 **LLM Agent** - API call to Claude, GPT, or other LLMs
-- 🛠️ **CLI Agent** - Execution of CLI tools like `claude`, `auggie`, etc.
+- **LLM Agent** - API call to Claude, GPT, or other LLMs
+- **CLI Agent** - Execution of CLI tools like `claude`, `auggie`, etc.
 
 This allows you to combine different review approaches in one pipeline!
 
@@ -23,19 +23,16 @@ Git Changes → Pipeline → LLM Agent (Claude API)  → Result 1
 
 ## Key Features
 
-- ⚡ **Pipeline-based** - Process diffs through multiple stages
-- 📋 **Stage System** - Organized execution: Load Rules → Match → Execute → Aggregate
-- 🎯 **Rule Matching** - Run different agents on different file types using glob patterns
-- 🔀 **Flexible Agents** - Mix LLM APIs and CLI tools in one pipeline
-- 📝 **Markdown Agents** - Define agents using simple Markdown files (inspired by Claude sub-agents)
-- 🚀 **Parallel Execution** - All agents run simultaneously within their stage
-- 🎨 **Live Spinners** - Visual feedback for each agent (no external dependencies)
-- 🤖 **Agent System** - Define agents in markdown files with flexible configuration
-- 🔄 **Configurable** - Enable/disable agents, rules, and stages
-- 🎯 **Simple** - One command to run entire pipeline
-- 🌍 **Global** - Works in any git repository
-- 📝 **Centralized Logging** - Fast, simple logger using Bun's console
-- 🪶 **Lightweight** - Only 1 dependency (zod for config validation)
+- **Pipeline-based** - Process diffs through multiple stages
+- **Stage System** - Organized execution: Load Rules → Match → Execute → Aggregate
+- **Rule Matching** - Run different agents on different file types using glob patterns
+- **Flexible Agents** - Mix LLM APIs and CLI tools in one pipeline
+- **Markdown Agents** - Define agents using simple Markdown files
+- **Parallel Execution** - All agents run simultaneously within their stage
+- **Live Spinners** - Visual feedback for each agent (no external dependencies)
+- **Configurable** - Enable/disable agents, rules, and stages
+- **Global** - Works in any git repository
+- **Lightweight** - Minimal dependencies
 
 ## Installation
 
@@ -63,18 +60,19 @@ diffray
 
 # Output:
 # ⚡ diffray - AI Code Review
-# 📊 Analyzing changes...
-# 📝 8 files: 7 modified, 1 added
+#
+# ■ Analyzing changes...
+# ◇ 8 files: 7 modified, 1 added
 #    624 changes: +612 -12
-# 🤖 Loading agents...
-# ✅ Loaded 2 agent(s)
+# ◉ Loading agents...
+# ✓ Loaded 2 agent(s)
 #
-# 🔄 Running 2 agent(s) in parallel...
-# ✅ Custom Code Review (101ms)
-# ✅ Security Scanner (101ms)
+# ↻ Running 2 agent(s) in parallel...
+# ✓ Custom Code Review (101ms)
+# ✓ Security Scanner (101ms)
 #
-# ✅ Pipeline completed successfully in 102ms  ⚡ 2x faster!
-# 📊 2/2 agents succeeded
+# ✓ Pipeline completed successfully in 102ms
+# ■ 2/2 agents succeeded
 
 # Verbose mode (shows file details and prompts)
 diffray --verbose
@@ -92,9 +90,9 @@ diffray --severity=error,warning
 diffray --json --severity=error
 
 # Output includes:
-#    📝 README.md: +141 -5
-#    📝 src/cli.ts: +107 -3
-#    ➕ src/config.test.ts: +52 -0
+#    ~ README.md: +141 -5
+#    ~ src/cli.ts: +107 -3
+#    + src/config.test.ts: +52 -0
 #    ...
 ```
 
@@ -138,7 +136,7 @@ diffray executors disable auggie-cli
 
 ### Manage Rules
 
-Rules allow you to run different agents on different file types using glob patterns. Rules are defined in YAML files in `src/defaults/rules/`.
+Rules allow you to run different agents on different file types using glob patterns. Rules are defined in Markdown files in `src/defaults/rules/`.
 
 ```bash
 # List all rules
@@ -150,31 +148,30 @@ diffray rules show typescript-review
 # Test rule matching against specific files
 diffray rules test typescript-review src/cli.ts src/agents.ts README.md
 # Output:
-# ✅ Matched 2 file(s):
-#   ✅ src/cli.ts
-#   ✅ src/agents.ts
+# ✓ Matched 2 file(s):
+#   ● src/cli.ts
+#   ● src/agents.ts
 # Not matched 1 file(s):
-#   ❌ README.md
+#   ○ README.md
 
-# Sync rules from YAML files to cache
+# Sync rules from MD files to cache
 diffray rules sync
 ```
 
 **Creating Custom Rules:**
 
-Create a new `.yaml` file in `src/defaults/rules/` with this structure:
+Create a new `.md` file in `src/defaults/rules/` with frontmatter:
 
-```yaml
-id: my-rule
-name: My Custom Rule
-description: Description of what this rule does
-enabled: true
-patterns:
-  - "**/*.ts"
-  - "**/*.tsx"
-agents:
-  - code-review
-  - security-scan
+```markdown
+---
+id: "my-rule"
+name: "My Custom Rule"
+description: "Description of what this rule does"
+patterns: ["**/*.ts", "**/*.tsx"]
+agent: "code-review"
+---
+
+Additional instructions for the agent when this rule matches.
 ```
 
 **Default Rules:**
@@ -227,83 +224,30 @@ The configuration file has the following structure:
 - `output.format`: Output format - `terminal`, `markdown`, or `json` (default: `terminal`)
 - `executors`: Cached executor configurations (managed via `diffray executors` commands)
 - `agents`: Cached agent configurations (synced from Markdown files via `diffray agents sync`)
-- `rules`: Cached rule configurations (synced from YAML files via `diffray rules sync`)
+- `rules`: Cached rule configurations (synced from MD files via `diffray rules sync`)
 - `stages`: Pipeline stage configurations with enabled/disabled status
 
 ### Executors Configuration
 
 Executors define **how** to run Agents. diffray supports multiple executor types:
 
-- **CLI Executors** - Run CLI tools like `auggie`, `claude`, etc.
+- **CLI Executors** - Run CLI tools like `claude`, `auggie`, etc.
 - **LLM API Executors** - Call LLM APIs directly (Claude, GPT, etc.)
 
-Executors are stored in `~/.diffray/executors.json`.
+Executors are configured in `~/.diffray/config.json`.
 
-#### Default Executors
-
-By default, diffray comes with:
-- **default-cli** (enabled) - Stub executor for testing - prints prompt preview, waits 5s, returns empty array
-- **auggie-cli** (disabled) - Uses Auggie CLI for code review
-- **claude-api** (disabled) - Claude API executor
-- **openai-api** (disabled) - OpenAI API executor
-
-The **default-cli** stub executor is perfect for:
-- Testing the pipeline without requiring external tools
-- Understanding how executors work
-- Development and debugging
-
-To use a real executor, enable it:
-```bash
-diffray executors enable auggie-cli
-diffray executors disable default-cli
-```
-
-#### Configuring Executors
-
-Create or edit `~/.diffray/executors.json`:
+#### CLI Executor Example
 
 ```json
 {
-  "executors": [
-    {
-      "id": "auggie-cli",
-      "name": "Auggie CLI",
-      "description": "Execute via Auggie CLI agent",
-      "type": "cli",
-      "command": "auggie",
-      "args": ["--print", "--quiet", "--model", "haiku4.5"],
-      "timeout": 60,
-      "enabled": true
-    },
-    {
-      "id": "claude-api",
-      "name": "Claude API",
-      "description": "Execute via Anthropic Claude API",
-      "type": "llm-api",
-      "provider": "anthropic",
-      "model": "claude-3-5-sonnet-20241022",
-      "temperature": 0.7,
-      "maxTokens": 4096,
-      "enabled": false,
-      "env": {
-        "ANTHROPIC_API_KEY": "sk-ant-..."
-      }
-    },
-    {
-      "id": "openai-api",
-      "name": "OpenAI API",
-      "description": "Execute via OpenAI GPT API",
-      "type": "llm-api",
-      "provider": "openai",
-      "model": "gpt-4",
-      "temperature": 0.7,
-      "maxTokens": 4096,
-      "enabled": false,
-      "env": {
-        "OPENAI_API_KEY": "sk-..."
-      }
-    }
-  ]
+  "id": "claude-cli",
+  "name": "Claude CLI",
+  "description": "Execute via Claude Code CLI",
+  "type": "cli",
+  "command": "claude",
+  "args": ["--print", "--quiet"],
+  "timeout": 120,
+  "enabled": true
 }
 ```
 
@@ -313,63 +257,20 @@ Create or edit `~/.diffray/executors.json`:
 - `name` - Display name
 - `description` - Description
 - `type` - Must be `"cli"`
-- `command` - Command to execute (e.g., `"auggie"`, `"claude"`)
+- `command` - Command to execute
 - `args` - Array of command arguments
 - `timeout` - Timeout in seconds (default: 60)
 - `enabled` - Enable/disable executor
-- `env` - Environment variables (optional)
-
-#### LLM API Executor Options
-
-- `id` - Unique executor identifier
-- `name` - Display name
-- `description` - Description
-- `type` - Must be `"llm-api"`
-- `provider` - API provider (`"anthropic"`, `"openai"`)
-- `model` - Model name (e.g., `"claude-3-5-sonnet-20241022"`, `"gpt-4"`)
-- `temperature` - Temperature (0.0-1.0)
-- `maxTokens` - Maximum tokens to generate
-- `enabled` - Enable/disable executor
-- `env` - Environment variables with API keys
-
-#### Example: Custom CLI Executor
-
-```json
-{
-  "id": "my-custom-tool",
-  "name": "My Custom Tool",
-  "description": "Custom code review tool",
-  "type": "cli",
-  "command": "my-tool",
-  "args": ["--mode", "review", "--format", "text"],
-  "timeout": 30,
-  "enabled": true
-}
-```
 
 #### Linking Agents to Executors
 
-Agents reference executors via the `executor` field in their configuration. Agents are defined in Markdown files (see [Agent Configuration Guide](./docs/AGENTS.md)) or stored in `~/.diffray/config.json`:
+Agents reference executors via the `executor` field in their Markdown configuration:
 
-```json
-{
-  "agents": [
-    {
-      "id": "code-review",
-      "name": "Code Review",
-      "executor": "auggie-cli",
-      "enabled": true
-    }
-  ]
-}
-```
-
-To use a different executor, change the `executor` field:
-
-```json
-{
-  "executor": "claude-api"  // Use Claude API instead
-}
+```markdown
+---
+ID: code-review
+Executor: claude-cli
+---
 ```
 
 ## Agent Configuration
@@ -414,15 +315,15 @@ The system will automatically load all `.md` files from `src/defaults/agents/` a
 ## Example Output
 
 ```
-🔍 diffray - AI-powered code review
+⚡ diffray - AI Code Review
 
-📊 Analyzing changes...
+■ Analyzing changes...
 
-Summary: 📝 2 modified, ➕ 1 added
+Summary: 2 modified, 1 added
 
 ================================================================================
 
-📝 src/index.ts (modified)
+src/index.ts (modified)
 
 + export function greet(name: string): string {
 +   return `Hello, ${name}!`;
@@ -430,7 +331,7 @@ Summary: 📝 2 modified, ➕ 1 added
 
 --------------------------------------------------------------------------------
 
-✨ Reviewed 3 file(s)
+✓ Reviewed 3 file(s)
 ```
 
 ## Development
@@ -459,7 +360,7 @@ diffray/
 │   ├── agents/              # Agent registry and loaders
 │   ├── executors/           # Executor implementations
 │   ├── commands/            # CLI commands
-│   ├── defaults/            # Default agents and rules (MD/YAML)
+│   ├── defaults/            # Default agents and rules (Markdown)
 │   ├── git.ts               # Git operations
 │   └── issue-formatter.ts   # Issue formatting
 └── package.json
@@ -467,18 +368,16 @@ diffray/
 
 ## Roadmap
 
-- [ ] AI-powered code review suggestions
-- [ ] Support for multiple AI providers (OpenAI, Anthropic, etc.)
 - [ ] Interactive mode with file selection
 - [ ] Export reports to markdown/HTML
-- [ ] Custom review rules and configurations
 - [ ] Integration with GitHub/GitLab
+- [ ] Token batching for large diffs
+- [ ] Caching for repeated reviews
 
 ## Built With
 
 - [Bun](https://bun.sh) - Fast JavaScript runtime
 - TypeScript - Type safety
-- Git - Version control integration
 
 ## License
 
