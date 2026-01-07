@@ -13,7 +13,7 @@ import type {
 } from './types';
 import { log } from './logger';
 import { getDefaultStages } from './stages';
-import { executorFactory } from './executors/factory';
+import { executorFactory } from './executors/index';
 import { agentRegistry } from './agents/registry';
 
 export class Pipeline {
@@ -87,7 +87,12 @@ export class Pipeline {
   /**
    * Execute pipeline
    */
-  async execute(diffs: GitDiff[], verbose = false, quiet = false): Promise<PipelineResult> {
+  async execute(
+    diffs: GitDiff[],
+    verbose = false,
+    quiet = false,
+    concurrency = 3
+  ): Promise<PipelineResult> {
     const startTime = Date.now();
 
     // Create context
@@ -101,6 +106,7 @@ export class Pipeline {
       },
       verbose,
       quiet,
+      concurrency,
     };
 
     // Execute stages

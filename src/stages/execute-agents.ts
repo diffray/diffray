@@ -11,11 +11,12 @@ import type {
   GitDiff,
 } from '../types';
 import { agentRegistry } from '../agents/registry';
-import { executorFactory } from '../executors/factory';
+import { executorFactory } from '../executors/index';
 import { log, Spinner } from '../logger';
 import { parseIssuesAuto } from '../issue-parser';
 import { batchDiffs, formatBatchInfo } from '../token-utils';
 import { getTokenCounterName, estimateTokens } from '../token-counter';
+import { createLimiter } from '../concurrency';
 
 export function createExecuteAgentsStage(): Stage {
   return {
@@ -26,6 +27,9 @@ export function createExecuteAgentsStage(): Stage {
     order: 2,
     execute: async (context: PipelineContext): Promise<StageResult> => {
       const startTime = Date.now();
+
+      // Create concurrency limiter from context
+      const limit = createLimiter(context.concurrency);
 
       // Show token counter info in verbose mode
       if (context.verbose && !context.quiet) {
@@ -86,6 +90,7 @@ export function createExecuteAgentsStage(): Stage {
 
             // Split diffs into batches
             const batches = batchDiffs(agentDiffs, systemPrompt);
+            const systemTokens = estimateTokens(systemPrompt);
 
             // Log batch information (skip if in quiet mode)
             if (context.quiet) {
@@ -102,9 +107,9 @@ export function createExecuteAgentsStage(): Stage {
               log.plain(`  ${formatBatchInfo(batches[0], true)}`);
             }
 
-            // Execute batches in parallel for this Agent
+            // Execute batches with concurrency limit
             const batchResults = await Promise.all(
-              batches.map(async (batch) => {
+              batches.map((batch) => limit(async () => {
                 const batchSpinner: Spinner | null = context.quiet
                   ? null
                   : new Spinner(
@@ -123,8 +128,7 @@ export function createExecuteAgentsStage(): Stage {
 
                 // Show prompt in verbose mode BEFORE execution
                 if (context.verbose && !context.quiet) {
-                  const systemTokens = estimateTokens(systemPrompt);
-                  const inputTokens = estimateTokens(batchDiffsText);
+                  const inputTokens = batch.tokenCount - systemTokens;
 
                   log.newline();
                   log.plain(
@@ -139,12 +143,10 @@ export function createExecuteAgentsStage(): Stage {
                   log.newline();
                 }
 
-                // Start spinner
-                if (batchSpinner) {
-                  batchSpinner.start();
-                }
-
                 try {
+                  // Start spinner inside try to ensure cleanup
+                  batchSpinner?.start();
+
                   // Create execution context
                   const execContext: ExecutionContext = {
                     agent,
@@ -164,18 +166,16 @@ export function createExecuteAgentsStage(): Stage {
                     result.agentName
                   );
 
-                  if (batchSpinner) {
-                    if (result.success) {
-                      batchSpinner.succeed(
-                        batches.length > 1
-                          ? `${agent.name} (batch ${batch.batchIndex + 1}/${batches.length}, ${result.duration}ms)`
-                          : `${agent.name} (${result.duration}ms)`
-                      );
-                    } else {
-                      batchSpinner.fail(
-                        `${agent.name} (batch ${batch.batchIndex + 1}/${batches.length}): ${result.error}`
-                      );
-                    }
+                  if (result.success) {
+                    batchSpinner?.succeed(
+                      batches.length > 1
+                        ? `${agent.name} (batch ${batch.batchIndex + 1}/${batches.length}, ${result.duration}ms)`
+                        : `${agent.name} (${result.duration}ms)`
+                    );
+                  } else {
+                    batchSpinner?.fail(
+                      `${agent.name} (batch ${batch.batchIndex + 1}/${batches.length}): ${result.error}`
+                    );
                   }
 
                   return {
@@ -186,19 +186,20 @@ export function createExecuteAgentsStage(): Stage {
                   };
                 } catch (error) {
                   const errorMessage = error instanceof Error ? error.message : String(error);
-                  if (batchSpinner) {
-                    batchSpinner.fail(
-                      `${agent.name} (batch ${batch.batchIndex + 1}/${batches.length}): ${errorMessage}`
-                    );
-                  }
+                  batchSpinner?.fail(
+                    `${agent.name} (batch ${batch.batchIndex + 1}/${batches.length}): ${errorMessage}`
+                  );
                   return {
                     issues: [],
                     duration: 0,
                     success: false,
                     error: errorMessage,
                   };
+                } finally {
+                  // Ensure spinner is stopped and cursor restored
+                  batchSpinner?.stop();
                 }
-              })
+              }))
             );
 
             // Collect all issues, errors and calculate total duration

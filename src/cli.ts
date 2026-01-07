@@ -7,8 +7,6 @@ import { loadAgents } from './agents';
 import { loadExecutors } from './executors';
 import { log } from './logger';
 import { formatIssuesByFile, formatAsJSON } from './issue-formatter';
-import { executorFactory } from './executors/factory';
-import { agentRegistry } from './agents/registry';
 import { matchPattern } from './rules';
 import { configCmd } from './cli/commands/config';
 import { agentsCmd } from './cli/commands/agents';
@@ -108,25 +106,20 @@ async function runReview(args: { verbose?: boolean; json?: boolean; severity?: s
 
   const executors = await loadExecutors();
   const enabledExecutors = executors.filter((e) => e.enabled);
-  for (const executor of enabledExecutors) {
-    executorFactory.registerExecutor(executor);
-  }
   if (!json) {
     log.success(`Loaded ${enabledExecutors.length} executor(s)`);
   }
 
-  const subAgents = await loadAgents();
-  const enabledAgents = subAgents.filter((a) => a.enabled);
-  for (const subAgent of enabledAgents) {
-    agentRegistry.register(subAgent);
-  }
+  const agents = await loadAgents();
+  const enabledAgents = agents.filter((a) => a.enabled);
   if (!json) {
     log.success(`Loaded ${enabledAgents.length} Agent(s)`);
     log.newline();
   }
 
-  const pipeline = new Pipeline(subAgents, executors);
-  const result = await pipeline.execute(filteredDiffs, verbose, json);
+  // Pipeline handles registration internally
+  const pipeline = new Pipeline(agents, executors);
+  const result = await pipeline.execute(filteredDiffs, verbose, json, config.concurrency);
 
   const issuesFromResults = result.context.results.flatMap((r) => r.issues);
 
@@ -164,16 +157,20 @@ async function runReview(args: { verbose?: boolean; json?: boolean; severity?: s
     }
 
     if (filteredIssues.length > 0) {
-      const errorCount = filteredIssues.filter((i) => i.severity === 'error').length;
-      const warningCount = filteredIssues.filter((i) => i.severity === 'warning').length;
-      const infoCount = filteredIssues.filter((i) => i.severity === 'info').length;
-      const suggestionCount = filteredIssues.filter((i) => i.severity === 'suggestion').length;
+      // Single pass to count all severity types
+      const counts = filteredIssues.reduce(
+        (acc, i) => {
+          acc[i.severity] = (acc[i.severity] || 0) + 1;
+          return acc;
+        },
+        {} as Record<string, number>
+      );
 
       const parts: string[] = [];
-      if (errorCount > 0) parts.push(`${errorCount} error(s)`);
-      if (warningCount > 0) parts.push(`${warningCount} warning(s)`);
-      if (infoCount > 0) parts.push(`${infoCount} info`);
-      if (suggestionCount > 0) parts.push(`${suggestionCount} suggestion(s)`);
+      if (counts.error) parts.push(`${counts.error} error(s)`);
+      if (counts.warning) parts.push(`${counts.warning} warning(s)`);
+      if (counts.info) parts.push(`${counts.info} info`);
+      if (counts.suggestion) parts.push(`${counts.suggestion} suggestion(s)`);
 
       log.chart(`${filteredIssues.length} issue(s): ${parts.join(', ')}`);
 

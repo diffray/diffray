@@ -16,7 +16,9 @@ export const ConfigSchema = z.object({
   executors: z.array(z.any()).default([]),
   agents: z.array(z.any()).default([]),
   rules: z.array(z.any()).default([]),
-  stages: z.array(z.object({ id: z.string(), enabled: z.boolean() })).default([]),
+  stages: z
+    .array(z.object({ id: z.string(), enabled: z.boolean(), order: z.number().optional() }))
+    .default([]),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

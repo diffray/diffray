@@ -19,11 +19,9 @@ import { log } from './logger.js';
 export async function loadAgents(projectPath?: string): Promise<Agent[]> {
   const config = await loadConfig();
 
-  // If cache is empty, sync from MD sources
+  // If cache is empty, sync from MD sources (returns synced agents directly)
   if (!config.agents || config.agents.length === 0) {
-    await syncAgentsToConfig(projectPath);
-    const updatedConfig = await loadConfig();
-    return getAgents(updatedConfig);
+    return syncAgentsToConfig(projectPath);
   }
 
   return getAgents(config);
@@ -36,8 +34,9 @@ export async function loadAgents(projectPath?: string): Promise<Agent[]> {
  * and saves them to the config cache for fast subsequent access.
  *
  * @param projectPath - Path to project root (defaults to process.cwd())
+ * @returns Synced agents array
  */
-export async function syncAgentsToConfig(projectPath?: string): Promise<void> {
+export async function syncAgentsToConfig(projectPath?: string): Promise<Agent[]> {
   const resolvedProjectPath = projectPath || process.cwd();
 
   // Load from all sources with priority merge
@@ -51,4 +50,5 @@ export async function syncAgentsToConfig(projectPath?: string): Promise<void> {
   await updateConfig({ agents: mergedAgents });
 
   log.info(`Synced ${mergedAgents.length} agents to config cache`);
+  return mergedAgents;
 }
