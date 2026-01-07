@@ -1,5 +1,5 @@
 import type { AgentExecutor } from './types';
-import { executorFactory } from './executors/factory.js';
+import { executorFactory } from './executors/index.js';
 import { loadConfig } from './config.js';
 
 /**

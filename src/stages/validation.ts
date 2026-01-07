@@ -13,63 +13,30 @@ import type {
   IssueSeverity,
 } from '../types';
 import { log, Spinner } from '../logger';
-import { executorFactory } from '../executors/factory';
+import { executorFactory } from '../executors/index';
+import { join } from 'path';
+import { fileURLToPath } from 'url';
 
-/**
- * System prompt for validation agent
- */
-const VALIDATION_SYSTEM_PROMPT = `You are a code review validation agent. Your task is to validate issues found by other agents and filter out false positives.
+// ============ Validation Prompt (cached) ============
 
-You will receive a JSON array of issues. Each issue has:
-- file: the file path
-- lineStart, lineEnd: the line range
-- severity: error, warning, info, or suggestion
-- shortDescription: brief description
-- fullDescription: detailed description
-- suggestion: optional suggestion for fixing
-- agentId, agentName: which agent found this issue
+let validationPromptCache: string | null = null;
 
-Your job is to:
-1. Analyze each issue carefully
-2. Determine if it's a valid issue or a false positive
-3. Return ONLY the valid issues in the same JSON format
+const DEFAULT_VALIDATION_PROMPT = `You are a code review validation agent. Your task is to validate issues found by other agents and filter out false positives.
 
 Return ONLY a JSON array of valid issues. Do not include any explanatory text, just the JSON array.
-
-Example input:
-[
-  {
-    "file": "src/example.ts",
-    "lineStart": 10,
-    "lineEnd": 15,
-    "severity": "error",
-    "shortDescription": "Unused variable",
-    "fullDescription": "Variable 'x' is declared but never used",
-    "suggestion": "Remove the unused variable",
-    "agentId": "typescript-agent",
-    "agentName": "TypeScript Agent"
-  }
-]
-
-Example output (if valid):
-[
-  {
-    "file": "src/example.ts",
-    "lineStart": 10,
-    "lineEnd": 15,
-    "severity": "error",
-    "shortDescription": "Unused variable",
-    "fullDescription": "Variable 'x' is declared but never used",
-    "suggestion": "Remove the unused variable",
-    "agentId": "typescript-agent",
-    "agentName": "TypeScript Agent"
-  }
-]
-
-Example output (if invalid):
-[]
-
 Be strict but fair. Only filter out clear false positives.`;
+
+async function loadValidationPrompt(): Promise<string> {
+  if (validationPromptCache) return validationPromptCache;
+  try {
+    const __filename = fileURLToPath(import.meta.url);
+    const promptPath = join(__filename, '..', '..', 'defaults', 'prompts', 'validation.md');
+    validationPromptCache = await Bun.file(promptPath).text();
+    return validationPromptCache;
+  } catch {
+    return DEFAULT_VALIDATION_PROMPT;
+  }
+}
 
 /**
  * Parse validated issues from agent output
@@ -165,6 +132,9 @@ export function createValidationStage(): Stage {
         : new Spinner(`Validating ${allIssues.length} issue(s)...`);
 
       try {
+        // Load validation prompt from file
+        const validationPrompt = await loadValidationPrompt();
+
         // Convert issues to JSON
         const issuesJson = JSON.stringify(allIssues, null, 2);
 
@@ -173,7 +143,7 @@ export function createValidationStage(): Stage {
           id: 'validation-agent',
           name: 'Validation Agent',
           description: 'Validates issues found by other agents',
-          systemPrompt: VALIDATION_SYSTEM_PROMPT,
+          systemPrompt: validationPrompt,
           enabled: true,
           order: 999,
           executor: executor.id,
@@ -184,7 +154,7 @@ export function createValidationStage(): Stage {
           agent: validationAgent,
           executor,
           input: issuesJson,
-          systemPrompt: VALIDATION_SYSTEM_PROMPT,
+          systemPrompt: validationPrompt,
           verbose: context.verbose,
         };
 
@@ -193,7 +163,7 @@ export function createValidationStage(): Stage {
           log.plain(`   Executor: ${executor.name}`);
           log.plain(`   Issues to validate: ${allIssues.length}`);
           log.plain('─'.repeat(80));
-          log.plain(`${VALIDATION_SYSTEM_PROMPT}\n\n# Input:\n${issuesJson}`);
+          log.plain(`${validationPrompt}\n\n# Input:\n${issuesJson}`);
           log.plain('─'.repeat(80));
           log.newline();
         }
@@ -255,9 +225,7 @@ export function createValidationStage(): Stage {
         };
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        if (spinner) {
-          spinner.fail(`Validation error: ${errorMessage}`);
-        }
+        spinner?.fail(`Validation error: ${errorMessage}`);
         return {
           stageId: 'validation',
           stageName: 'Validation',
@@ -265,6 +233,8 @@ export function createValidationStage(): Stage {
           duration: Date.now() - startTime,
           error: errorMessage,
         };
+      } finally {
+        spinner?.stop();
       }
     },
   };

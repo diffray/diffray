@@ -13,11 +13,9 @@ import { log } from './logger.js';
 export async function loadRules(projectPath?: string): Promise<Rule[]> {
   const config = await loadConfig();
 
-  // If cache is empty, sync rules from MD files
+  // If cache is empty, sync rules from MD files (returns synced rules directly)
   if (!config.rules || config.rules.length === 0) {
-    await syncRulesToConfig(projectPath);
-    const updatedConfig = await loadConfig();
-    return getRules(updatedConfig);
+    return syncRulesToConfig(projectPath);
   }
 
   return getRules(config);
@@ -30,8 +28,9 @@ export async function loadRules(projectPath?: string): Promise<Rule[]> {
  * This ensures the cache is populated with the latest rules from the filesystem.
  *
  * @param projectPath - Path to project root (defaults to process.cwd())
+ * @returns Synced rules array
  */
-export async function syncRulesToConfig(projectPath?: string): Promise<void> {
+export async function syncRulesToConfig(projectPath?: string): Promise<Rule[]> {
   const resolvedProjectPath = projectPath || process.cwd();
 
   // Load from all sources with priority merge (recursive)
@@ -45,26 +44,26 @@ export async function syncRulesToConfig(projectPath?: string): Promise<void> {
   await updateConfig({ rules: mergedRules });
 
   log.info(`Synced ${mergedRules.length} rules to config cache`);
+  return mergedRules;
 }
 
 /**
  * Match rules to files based on glob patterns
  */
 export function matchRules(rules: Rule[], diffs: GitDiff[], agents: Agent[]): MatchedRule[] {
+  // Build agent lookup map for O(1) access
+  const agentMap = new Map(agents.map((a) => [a.id, a]));
   const matched: MatchedRule[] = [];
 
   for (const rule of rules) {
+    const agent = agentMap.get(rule.agent);
+    if (!agent) continue;
+
     const matchedFiles = diffs
-      .filter((diff) => {
-        // Match if file matches ANY of the patterns
-        return rule.patterns.some((pattern) => matchPattern(diff.file, pattern));
-      })
+      .filter((diff) => rule.patterns.some((pattern) => matchPattern(diff.file, pattern)))
       .map((diff) => diff.file);
 
     if (matchedFiles.length === 0) continue;
-
-    const agent = agents.find((a) => a.id === rule.agent);
-    if (!agent) continue;
 
     matched.push({
       rule,
@@ -77,10 +76,15 @@ export function matchRules(rules: Rule[], diffs: GitDiff[], agents: Agent[]): Ma
 }
 
 /**
+ * Cached regex for brace expansion
+ */
+const BRACE_REGEX = /\{([^}]+)\}/;
+
+/**
  * Expand brace patterns like {a,b,c} into multiple patterns
  */
 export function expandBraces(pattern: string): string[] {
-  const braceMatch = pattern.match(/\{([^}]+)\}/);
+  const braceMatch = pattern.match(BRACE_REGEX);
   if (!braceMatch || braceMatch.index === undefined || !braceMatch[1]) {
     return [pattern];
   }

@@ -2,19 +2,15 @@
  * Stage registry and configuration
  */
 
-import { join } from 'path';
-import { homedir } from 'os';
 import { z } from 'zod';
 import type { Stage } from '../types';
+import { loadConfig, updateConfig } from '../config';
 import { createLoadRulesStage } from './load-rules';
 import { createMatchRulesStage } from './match-rules';
 import { createExecuteAgentsStage } from './execute-agents';
 import { createAggregateResultsStage } from './aggregate-results';
 import { createDeduplicationStage } from './deduplication';
 import { createValidationStage } from './validation';
-
-const DIFFRAY_DIR = join(homedir(), '.diffray');
-const STAGES_CONFIG_FILE = join(DIFFRAY_DIR, 'stages.json');
 
 /**
  * Stage configuration schema
@@ -24,12 +20,6 @@ export const StageConfigSchema = z.object({
   enabled: z.boolean().default(true),
   order: z.number().optional(),
 });
-
-export const StagesConfigSchema = z.object({
-  stages: z.array(StageConfigSchema).default([]),
-});
-
-export type StagesConfig = z.infer<typeof StagesConfigSchema>;
 
 /**
  * Built-in stage creators
@@ -46,32 +36,16 @@ const BUILTIN_STAGES = {
 /**
  * Load stages configuration
  */
-export async function loadStagesConfig(): Promise<StagesConfig> {
-  try {
-    const file = Bun.file(STAGES_CONFIG_FILE);
-    if (!(await file.exists())) {
-      return { stages: [] };
-    }
-
-    const data = await file.json();
-    return StagesConfigSchema.parse(data);
-  } catch {
-    return { stages: [] };
-  }
-}
-
-/**
- * Save stages configuration
- */
-export async function saveStagesConfig(config: StagesConfig): Promise<void> {
-  await Bun.write(STAGES_CONFIG_FILE, JSON.stringify(config, null, 2));
+export async function loadStagesConfig() {
+  const config = await loadConfig();
+  return config.stages;
 }
 
 /**
  * Get all stages with configuration applied
  */
 export async function getStages(): Promise<Stage[]> {
-  const config = await loadStagesConfig();
+  const config = await loadConfig();
   const stages: Stage[] = [];
 
   // Create all built-in stages
@@ -82,7 +56,7 @@ export async function getStages(): Promise<Stage[]> {
     const stageConfig = config.stages.find((s) => s.id === id);
     if (stageConfig) {
       stage.enabled = stageConfig.enabled;
-      if (stageConfig.order !== undefined) {
+      if ('order' in stageConfig && stageConfig.order !== undefined) {
         stage.order = stageConfig.order;
       }
     }
@@ -111,30 +85,32 @@ export function getDefaultStages(): Stage[] {
  * Enable/disable stage
  */
 export async function toggleStage(stageId: string, enabled: boolean): Promise<void> {
-  const config = await loadStagesConfig();
+  const config = await loadConfig();
+  const stages = [...config.stages];
 
-  const existing = config.stages.find((s) => s.id === stageId);
+  const existing = stages.find((s) => s.id === stageId);
   if (existing) {
     existing.enabled = enabled;
   } else {
-    config.stages.push({ id: stageId, enabled });
+    stages.push({ id: stageId, enabled });
   }
 
-  await saveStagesConfig(config);
+  await updateConfig({ stages });
 }
 
 /**
  * Set stage order
  */
 export async function setStageOrder(stageId: string, order: number): Promise<void> {
-  const config = await loadStagesConfig();
+  const config = await loadConfig();
+  const stages = [...config.stages];
 
-  const existing = config.stages.find((s) => s.id === stageId);
-  if (existing) {
-    existing.order = order;
+  const existingIndex = stages.findIndex((s) => s.id === stageId);
+  if (existingIndex >= 0) {
+    stages[existingIndex] = { ...stages[existingIndex]!, order };
   } else {
-    config.stages.push({ id: stageId, enabled: true, order });
+    stages.push({ id: stageId, enabled: true, order });
   }
 
-  await saveStagesConfig(config);
+  await updateConfig({ stages });
 }

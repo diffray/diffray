@@ -141,6 +141,7 @@ export interface PipelineContext {
   };
   verbose?: boolean;
   quiet?: boolean; // Suppress all logs (for JSON output mode)
+  concurrency: number; // Max concurrent batch executions
   matchedRules?: MatchedRule[]; // Matched rules from match-rules stage
 }
 
