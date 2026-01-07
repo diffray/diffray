@@ -13,7 +13,7 @@ import type {
 } from './types';
 import { log } from './logger';
 import { getDefaultStages } from './stages';
-import { executorFactory } from './executors/index';
+import { executorFactory } from './executors';
 import { agentRegistry } from './agents/registry';
 
 export class Pipeline {
@@ -91,7 +91,8 @@ export class Pipeline {
     diffs: GitDiff[],
     verbose = false,
     quiet = false,
-    concurrency = 3
+    concurrency = 3,
+    skipValidation = false
   ): Promise<PipelineResult> {
     const startTime = Date.now();
 
@@ -107,6 +108,7 @@ export class Pipeline {
       verbose,
       quiet,
       concurrency,
+      skipValidation,
     };
 
     // Execute stages

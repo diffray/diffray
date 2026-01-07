@@ -4,6 +4,7 @@ import { join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 import { homedir } from 'node:os';
+import type { ConfigSource } from './types.js';
 
 type FrontmatterValue = string | number | boolean | null | FrontmatterValue[];
 export type Frontmatter = Record<string, FrontmatterValue>;
@@ -15,17 +16,11 @@ interface ParsedMarkdown {
 
 function parseFrontmatter(content: string): ParsedMarkdown {
   if (!content || content.trim() === '') {
-    return {
-      frontmatter: {},
-      body: '',
-    };
+    return { frontmatter: {}, body: '' };
   }
 
   if (!content.startsWith('---')) {
-    return {
-      frontmatter: {},
-      body: content,
-    };
+    return { frontmatter: {}, body: content };
   }
 
   const endIndex = content.indexOf('---', 3);
@@ -36,65 +31,19 @@ function parseFrontmatter(content: string): ParsedMarkdown {
   const frontmatterText = content.slice(3, endIndex).trim();
   const body = content.slice(endIndex + 3).trim();
 
-  const frontmatter: Frontmatter = {};
-
-  if (frontmatterText) {
-    const lines = frontmatterText.split('\n');
-
-    for (const line of lines) {
-      const trimmedLine = line.trim();
-      if (!trimmedLine || trimmedLine.startsWith('#')) continue;
-
-      const colonIndex = trimmedLine.indexOf(':');
-      if (colonIndex === -1) {
-        throw new Error(`Invalid frontmatter line: "${trimmedLine}"`);
-      }
-
-      const key = trimmedLine.slice(0, colonIndex).trim();
-      let value = trimmedLine.slice(colonIndex + 1).trim();
-
-      if (value.startsWith('[') && value.endsWith(']')) {
-        try {
-          const arrayContent = value.slice(1, -1).trim();
-          if (arrayContent === '') {
-            frontmatter[key] = [];
-          } else {
-            const items = arrayContent.split(',').map((item) => {
-              const trimmed = item.trim();
-              if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
-                return trimmed.slice(1, -1);
-              }
-              if (trimmed === 'true' || trimmed === 'false') {
-                return trimmed === 'true';
-              }
-              if (!isNaN(Number(trimmed)) && trimmed !== '') {
-                return Number(trimmed);
-              }
-              return trimmed;
-            });
-            frontmatter[key] = items;
-          }
-        } catch {
-          throw new Error(`Invalid array value for key "${key}": ${value}`);
-        }
-      } else if (value.startsWith('"') && value.endsWith('"')) {
-        frontmatter[key] = value.slice(1, -1);
-      } else if (value === 'true' || value === 'false') {
-        frontmatter[key] = value === 'true';
-      } else if (!isNaN(Number(value)) && value !== '') {
-        frontmatter[key] = Number(value);
-      } else if (value === '') {
-        frontmatter[key] = null;
-      } else {
-        frontmatter[key] = value;
-      }
-    }
+  if (!frontmatterText) {
+    return { frontmatter: {}, body };
   }
 
-  return {
-    frontmatter,
-    body,
-  };
+  // Use Bun's native YAML parser
+  let frontmatter: Frontmatter;
+  try {
+    frontmatter = Bun.YAML.parse(frontmatterText) as Frontmatter;
+  } catch (e) {
+    throw new Error(`Invalid YAML in frontmatter: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  return { frontmatter, body };
 }
 
 export type MarkdownBuilder<T> = (frontmatter: Frontmatter, body: string) => T | null;
@@ -171,6 +120,10 @@ export async function loadMarkdownDirectory<T>(
     log.info(`Loaded ${finalItems.length} items from ${mdFiles.length} files in ${dirPath}`);
     return finalItems;
   } catch (error) {
+    // Silently ignore ENOENT (directory doesn't exist) - optional directories are expected
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return [];
+    }
     log.error(`Error loading from directory ${dirPath}:`, error);
     return [];
   }
@@ -222,14 +175,14 @@ export async function loadMarkdownDirectoryRecursive<T>(
 }
 
 /**
- * Merge items by id with priority (later sources override earlier)
+ * Merge items by name with priority (later sources override earlier)
  */
-export function mergeById<T extends { id: string }>(...sources: T[][]): T[] {
+export function mergeByName<T extends { name: string }>(...sources: T[][]): T[] {
   const merged = new Map<string, T>();
 
   for (const source of sources) {
     for (const item of source) {
-      merged.set(item.id, item);
+      merged.set(item.name, item);
     }
   }
 
@@ -254,10 +207,10 @@ function getPriorityPaths(
 }
 
 /**
- * Load items from 3 priority levels and merge by id
+ * Load items from 3 priority levels and merge by name
  * Priority: defaults < user < project (project overrides all)
  */
-export async function loadWithPriority<T extends { id: string }>(
+export async function loadWithPriority<T extends { name: string }>(
   subdir: string,
   loader: (dirPath: string) => Promise<T[]>,
   projectPath: string
@@ -270,7 +223,85 @@ export async function loadWithPriority<T extends { id: string }>(
     loader(paths.project),
   ]);
 
-  return mergeById(defaults, user, project);
+  return mergeByName(defaults, user, project);
+}
+
+/**
+ * Scan directory for rule references (lightweight, no prompt content)
+ * Returns array of { name, path, patterns, agent, source }
+ */
+export interface RuleRefData {
+  name: string;
+  description: string;
+  path: string;
+  patterns: string[];
+  agent: string;
+  source: ConfigSource;
+}
+
+export async function scanRuleRefs(dirPath: string, source: ConfigSource): Promise<RuleRefData[]> {
+  try {
+    const glob = new Glob('**/*.md');
+    const refs: RuleRefData[] = [];
+
+    for await (const file of glob.scan(dirPath)) {
+      const filePath = join(dirPath, file);
+      try {
+        const content = await Bun.file(filePath).text();
+        const { frontmatter } = parseFrontmatter(content);
+
+        // Extract only what we need for config (no prompt)
+        const name = frontmatter.name;
+        const description = frontmatter.description;
+        const agent = frontmatter.agent;
+        const patterns = frontmatter.patterns;
+
+        if (
+          typeof name === 'string' &&
+          typeof agent === 'string' &&
+          Array.isArray(patterns) &&
+          patterns.length > 0
+        ) {
+          refs.push({
+            name,
+            description: typeof description === 'string' ? description : '',
+            path: filePath,
+            patterns: patterns.filter((p): p is string => typeof p === 'string'),
+            agent,
+            source,
+          });
+        }
+      } catch {
+        // Skip invalid files
+      }
+    }
+
+    return refs;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Load rule refs from all priority levels
+ * Returns refs with source info, merged by name (project > user > defaults)
+ */
+export async function loadRuleRefsWithPriority(projectPath: string): Promise<RuleRefData[]> {
+  const paths = getPriorityPaths('rules', projectPath);
+
+  const [defaults, user, project] = await Promise.all([
+    scanRuleRefs(paths.defaults, 'defaults'),
+    scanRuleRefs(paths.user, 'user'),
+    scanRuleRefs(paths.project, 'project'),
+  ]);
+
+  // Merge by name - later sources override earlier
+  const merged = new Map<string, RuleRefData>();
+  for (const ref of [...defaults, ...user, ...project]) {
+    merged.set(ref.name, ref);
+  }
+
+  return Array.from(merged.values());
 }
 
 export { parseFrontmatter };

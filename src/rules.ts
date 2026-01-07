@@ -1,54 +1,202 @@
-import type { Rule, Agent, MatchedRule, GitDiff } from './types';
-import { loadRulesFromDirectoryRecursive } from './rules/md-loader.js';
-import { loadWithPriority } from './md-loader.js';
-import { loadConfig, updateConfig, getRules } from './config.js';
-import { log } from './logger.js';
+import type { Rule, RuleRef, Agent, MatchedRule, GitDiff } from './types';
+import {
+  parseMarkdown,
+  loadMarkdownFile,
+  loadMarkdownDirectoryRecursive,
+  loadRuleRefsWithPriority,
+  parseFrontmatter,
+  type Frontmatter,
+} from './md-loader';
+import { loadConfig, updateConfig, getRuleRefs } from './config';
+import { log } from './logger';
+
+// ============ Rule Markdown Parsing ============
+
+function buildRule(frontmatter: Frontmatter, body: string): Rule | null {
+  const name = frontmatter.name;
+  const agent = frontmatter.agent;
+  const patterns = frontmatter.patterns;
+  const prompt = body.trim();
+
+  // Validate required fields
+  if (typeof name !== 'string' || typeof agent !== 'string') {
+    return null;
+  }
+
+  if (!Array.isArray(patterns) || patterns.length === 0) {
+    return null;
+  }
+
+  if (!prompt) {
+    return null;
+  }
+
+  const rule: Rule = {
+    name,
+    description: typeof frontmatter.description === 'string' ? frontmatter.description : '',
+    patterns: patterns.filter((p): p is string => typeof p === 'string'),
+    agent,
+    prompt,
+  };
+
+  return rule;
+}
+
+export function parseRuleMarkdown(content: string): Rule[] {
+  return parseMarkdown(content, buildRule);
+}
+
+export async function loadRuleMarkdown(filePath: string): Promise<Rule[]> {
+  try {
+    return await loadMarkdownFile<Rule>(filePath, buildRule);
+  } catch (error) {
+    log.error(`Error loading rule markdown from ${filePath}:`, error);
+    return [];
+  }
+}
+
+export async function loadRulesFromDirectoryRecursive(dirPath: string): Promise<Rule[]> {
+  return loadMarkdownDirectoryRecursive(dirPath, buildRule);
+}
+
+export function parseSingleRule(content: string): Rule | null {
+  const rules = parseRuleMarkdown(content);
+  return rules.length > 0 ? (rules[0] ?? null) : null;
+}
+
+// ============ Rule Loading ============
 
 /**
- * Load rules from all sources with priority merge (recursive)
- *
- * @param projectPath - Path to project root (defaults to process.cwd())
- * @returns Merged rules array (project overrides user overrides defaults)
+ * Load rule refs from config (lightweight, no prompts)
  */
-export async function loadRules(projectPath?: string): Promise<Rule[]> {
+export async function loadRuleRefs(projectPath?: string): Promise<RuleRef[]> {
   const config = await loadConfig();
 
-  // If cache is empty, sync rules from MD files (returns synced rules directly)
+  // If cache is empty, sync from MD files
   if (!config.rules || config.rules.length === 0) {
     return syncRulesToConfig(projectPath);
   }
 
-  return getRules(config);
+  return getRuleRefs(config);
 }
 
 /**
- * Sync rules from MD files to config cache
- *
- * Loads rules from all sources (defaults, user, project) and saves them to config.
- * This ensures the cache is populated with the latest rules from the filesystem.
- *
- * @param projectPath - Path to project root (defaults to process.cwd())
- * @returns Synced rules array
+ * Load full rule content from a RuleRef (reads prompt from file)
  */
-export async function syncRulesToConfig(projectPath?: string): Promise<Rule[]> {
+export async function loadRuleFromRef(ref: RuleRef): Promise<Rule | null> {
+  try {
+    const content = await Bun.file(ref.path).text();
+    const { body } = parseFrontmatter(content);
+
+    return {
+      name: ref.name,
+      description: ref.description,
+      patterns: ref.patterns,
+      agent: ref.agent,
+      prompt: body.trim(),
+      source: ref.source,
+      path: ref.path,
+    };
+  } catch (error) {
+    log.error(`Failed to load rule from ${ref.path}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Load full rules from refs (batch loading)
+ */
+export async function loadRulesFromRefs(refs: RuleRef[]): Promise<Rule[]> {
+  const rules: Rule[] = [];
+  for (const ref of refs) {
+    const rule = await loadRuleFromRef(ref);
+    if (rule) rules.push(rule);
+  }
+  return rules;
+}
+
+/**
+ * Sync rules from MD files to config cache (stores only refs, not prompts)
+ */
+export async function syncRulesToConfig(projectPath?: string): Promise<RuleRef[]> {
   const resolvedProjectPath = projectPath || process.cwd();
 
-  // Load from all sources with priority merge (recursive)
-  const mergedRules = await loadWithPriority<Rule>(
-    'rules',
-    loadRulesFromDirectoryRecursive,
-    resolvedProjectPath
-  );
+  // Scan all sources and get refs with paths
+  const refs = await loadRuleRefsWithPriority(resolvedProjectPath);
 
-  // Save to config cache
-  await updateConfig({ rules: mergedRules });
+  // Save refs to config (no prompts stored)
+  await updateConfig({ rules: refs });
 
-  log.info(`Synced ${mergedRules.length} rules to config cache`);
-  return mergedRules;
+  log.info(`Synced ${refs.length} rule refs to config cache`);
+  return refs;
+}
+
+/**
+ * Legacy: Load full rules (for backwards compatibility)
+ * @deprecated Use loadRuleRefs + loadRulesFromRefs for lazy loading
+ */
+export async function loadRules(projectPath?: string): Promise<Rule[]> {
+  const refs = await loadRuleRefs(projectPath);
+  return loadRulesFromRefs(refs);
+}
+
+// ============ Rule Matching ============
+
+/**
+ * Match rule refs to files (no prompt loading)
+ * Returns refs with matched files for lazy loading
+ */
+export function matchRuleRefs(
+  refs: RuleRef[],
+  diffs: GitDiff[],
+  agents: Agent[]
+): { ref: RuleRef; files: string[]; agent: Agent }[] {
+  const agentMap = new Map(agents.map((a) => [a.id, a]));
+  const matched: { ref: RuleRef; files: string[]; agent: Agent }[] = [];
+
+  for (const ref of refs) {
+    const agent = agentMap.get(ref.agent);
+    if (!agent) continue;
+
+    const matchedFiles = diffs
+      .filter((diff) => ref.patterns.some((pattern) => matchPattern(diff.file, pattern)))
+      .map((diff) => diff.file);
+
+    if (matchedFiles.length === 0) continue;
+
+    matched.push({ ref, files: matchedFiles, agent });
+  }
+
+  return matched;
+}
+
+/**
+ * Match rules and load prompts only for matched rules
+ * More efficient than loading all rules then matching
+ */
+export async function matchAndLoadRules(
+  refs: RuleRef[],
+  diffs: GitDiff[],
+  agents: Agent[]
+): Promise<MatchedRule[]> {
+  // First match by patterns (no file I/O)
+  const matchedRefs = matchRuleRefs(refs, diffs, agents);
+
+  // Then load prompts only for matched rules
+  const results: MatchedRule[] = [];
+  for (const { ref, files, agent } of matchedRefs) {
+    const rule = await loadRuleFromRef(ref);
+    if (rule) {
+      results.push({ rule, files, agent });
+    }
+  }
+
+  return results;
 }
 
 /**
  * Match rules to files based on glob patterns
+ * @deprecated Use matchAndLoadRules for lazy loading
  */
 export function matchRules(rules: Rule[], diffs: GitDiff[], agents: Agent[]): MatchedRule[] {
   // Build agent lookup map for O(1) access
@@ -74,6 +222,8 @@ export function matchRules(rules: Rule[], diffs: GitDiff[], agents: Agent[]): Ma
 
   return matched;
 }
+
+// ============ Pattern Matching ============
 
 /**
  * Cached regex for brace expansion

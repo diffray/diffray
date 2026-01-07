@@ -15,6 +15,30 @@ const colors = {
   gray: '\x1b[90m',
 };
 
+const activeSpinners = new Set<Spinner>();
+
+function restoreCursor() {
+  process.stdout.write('\x1B[?25h');
+}
+
+process.on('SIGINT', () => {
+  for (const spinner of activeSpinners) {
+    spinner.stop();
+  }
+  restoreCursor();
+  console.log(`\n${colors.yellow}!${colors.reset} Interrupted - shutting down gracefully`);
+  process.exit(130);
+});
+
+process.on('SIGTERM', () => {
+  for (const spinner of activeSpinners) {
+    spinner.stop();
+  }
+  restoreCursor();
+  console.log(`\n${colors.yellow}!${colors.reset} Terminated - shutting down gracefully`);
+  process.exit(143);
+});
+
 /**
  * Fast logger using Bun's console
  */
@@ -74,6 +98,15 @@ export const log = {
   lightning: (msg: string) => console.log(`${colors.yellow}⚡${colors.reset} ${msg}`),
   sparkles: (msg: string) => console.log(`${colors.magenta}✦${colors.reset} ${msg}`),
 
+  // Logo banner
+  logo: () => {
+    console.log();
+    console.log(`  ${colors.green}┌──────────────────────────────┐${colors.reset}`);
+    console.log(`  ${colors.green}│  diffray - AI Code Review    │${colors.reset}`);
+    console.log(`  ${colors.green}└──────────────────────────────┘${colors.reset}`);
+    console.log();
+  },
+
   // Separator
   separator: (char = '=', length = 80) => {
     console.log(char.repeat(length));
@@ -131,6 +164,7 @@ export class Spinner {
   start() {
     if (this.isSpinning) return;
     this.isSpinning = true;
+    activeSpinners.add(this);
     this.frameIndex = 0;
 
     // Hide cursor
@@ -168,6 +202,7 @@ export class Spinner {
 
   stop() {
     if (!this.isSpinning) return;
+    activeSpinners.delete(this);
     this.isSpinning = false;
 
     if (this.intervalId) {

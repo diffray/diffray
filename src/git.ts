@@ -1,7 +1,32 @@
 import git from 'isomorphic-git';
 import fs from 'node:fs/promises';
 import * as Diff from 'diff';
+import { spawn } from 'node:child_process';
 import type { GitDiff } from './types.js';
+
+/**
+ * Run native git command and return stdout
+ */
+async function runGit(args: string[], cwd: string = process.cwd()): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('git', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+
+    proc.stdout.on('data', (data) => (stdout += data));
+    proc.stderr.on('data', (data) => (stderr += data));
+
+    proc.on('close', (code) => {
+      if (code === 0) {
+        resolve(stdout);
+      } else {
+        reject(new Error(`git ${args[0]} failed: ${stderr || `exit code ${code}`}`));
+      }
+    });
+
+    proc.on('error', reject);
+  });
+}
 
 /**
  * Status matrix row type: [filepath, HEAD, WORKDIR, STAGE]
@@ -104,7 +129,7 @@ export async function getFileStatus(file: string): Promise<GitDiff['status']> {
       return 'modified';
     }
 
-    const [_, head, workdir, stage] = statusRow;
+    const [, head, workdir, stage] = statusRow;
 
     if (head === 0) return 'added';
     if (workdir === 0) return 'deleted';
@@ -166,4 +191,119 @@ export async function getAllDiffs(): Promise<GitDiff[]> {
   );
 
   return diffs.filter((d): d is GitDiff => d !== null).filter((d) => d.diff.trim().length > 0);
+}
+
+/**
+ * Parse git diff --name-status output to get changed files with status
+ */
+function parseNameStatus(output: string): Array<{ file: string; status: GitDiff['status'] }> {
+  return output
+    .trim()
+    .split('\n')
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const [statusChar, ...pathParts] = line.split('\t');
+      const file = pathParts.join('\t'); // Handle filenames with tabs
+      let status: GitDiff['status'] = 'modified';
+      if (statusChar === 'A') status = 'added';
+      else if (statusChar === 'D') status = 'deleted';
+      else if (statusChar?.startsWith('R')) status = 'modified'; // Renamed
+      return { file, status };
+    })
+    .filter((entry) => entry.file);
+}
+
+/**
+ * Get diffs from the last commit (HEAD vs HEAD~1) using native git
+ */
+export async function getLastCommitDiffs(): Promise<GitDiff[]> {
+  try {
+    // Use native git for fast file listing
+    const nameStatus = await runGit(['diff', '--name-status', 'HEAD~1', 'HEAD']);
+    const changedFiles = parseNameStatus(nameStatus);
+
+    if (changedFiles.length === 0) {
+      return [];
+    }
+
+    // Get diffs for each file using native git show
+    const diffs = await Promise.all(
+      changedFiles.map(async ({ file, status }) => {
+        try {
+          // Get unified diff for this file
+          const diff = await runGit(['diff', 'HEAD~1', 'HEAD', '--', file]);
+          const { additions, deletions } = countDiffChanges(diff);
+
+          // Convert to patch format if needed
+          const patchDiff = diff.startsWith('diff --git')
+            ? diff
+            : Diff.createPatch(file, '', '', 'HEAD~1', 'HEAD');
+
+          return {
+            file,
+            status,
+            diff: patchDiff,
+            additions,
+            deletions,
+          } as GitDiff;
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    return diffs.filter((d): d is GitDiff => d !== null && d.diff.trim().length > 0);
+  } catch (error) {
+    throw new Error(`Failed to get last commit diffs: ${error}`);
+  }
+}
+
+/**
+ * Get diffs between two commits/refs (base vs head) using native git
+ * @param baseRef - Base commit/branch/tag to compare from (e.g., 'main', 'HEAD~3', commit SHA)
+ * @param headRef - Head commit/branch/tag to compare to (defaults to 'HEAD')
+ */
+export async function getCommitDiffs(
+  baseRef: string,
+  headRef: string = 'HEAD'
+): Promise<GitDiff[]> {
+  try {
+    // Use native git for fast file listing (native git handles ref~N syntax)
+    const nameStatus = await runGit(['diff', '--name-status', baseRef, headRef]);
+    const changedFiles = parseNameStatus(nameStatus);
+
+    if (changedFiles.length === 0) {
+      return [];
+    }
+
+    // Get diffs for each file using native git
+    const diffs = await Promise.all(
+      changedFiles.map(async ({ file, status }) => {
+        try {
+          // Get unified diff for this file
+          const diff = await runGit(['diff', baseRef, headRef, '--', file]);
+          const { additions, deletions } = countDiffChanges(diff);
+
+          // Convert to patch format if needed
+          const patchDiff = diff.startsWith('diff --git')
+            ? diff
+            : Diff.createPatch(file, '', '', baseRef, headRef);
+
+          return {
+            file,
+            status,
+            diff: patchDiff,
+            additions,
+            deletions,
+          } as GitDiff;
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    return diffs.filter((d): d is GitDiff => d !== null && d.diff.trim().length > 0);
+  } catch (error) {
+    throw new Error(`Failed to get diffs between ${baseRef} and ${headRef}: ${error}`);
+  }
 }

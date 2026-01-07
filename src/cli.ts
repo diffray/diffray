@@ -1,6 +1,6 @@
-import { defineCommand, runMain } from 'citty';
+import { defineCommand } from 'citty';
 import packageJson from '../package.json';
-import { isGitRepository, getAllDiffs } from './git';
+import { isGitRepository, getAllDiffs, getLastCommitDiffs, getCommitDiffs } from './git';
 import { loadConfig } from './config';
 import { Pipeline } from './pipeline';
 import { loadAgents } from './agents';
@@ -29,13 +29,19 @@ function getStatusIcon(status: string): string {
   }
 }
 
-async function runReview(args: { verbose?: boolean; json?: boolean; severity?: string }) {
-  const { verbose = false, json = false, severity } = args;
+async function runReview(args: {
+  verbose?: boolean;
+  json?: boolean;
+  severity?: string;
+  base?: string;
+  head?: string;
+  skipValidation?: boolean;
+}) {
+  const { verbose = false, json = false, severity, base, head, skipValidation = false } = args;
   const severityFilter = severity ? severity.split(',').map((s: string) => s.trim()) : undefined;
 
   if (!json) {
-    log.lightning('diffray - AI Code Review');
-    log.newline();
+    log.logo();
   }
 
   const config = await loadConfig();
@@ -51,11 +57,40 @@ async function runReview(args: { verbose?: boolean; json?: boolean; severity?: s
   if (!json) {
     log.chart('Analyzing changes...');
   }
-  const diffs = await getAllDiffs();
 
-  if (diffs.length === 0) {
-    log.success('No changes');
-    return;
+  let diffs;
+  let sourceLabel = '';
+
+  // Priority: explicit base/head > uncommitted changes > last commit
+  if (base) {
+    // Explicit comparison mode
+    const headRef = head || 'HEAD';
+    if (!json) {
+      log.info(`Comparing ${base}...${headRef}`);
+    }
+    diffs = await getCommitDiffs(base, headRef);
+    sourceLabel = ` (${base}...${headRef})`;
+
+    if (diffs.length === 0) {
+      log.success('No changes between commits');
+      return;
+    }
+  } else {
+    // Default mode: uncommitted changes or last commit
+    diffs = await getAllDiffs();
+
+    if (diffs.length === 0) {
+      if (!json) {
+        log.info('No uncommitted changes, reviewing last commit...');
+      }
+      diffs = await getLastCommitDiffs();
+      sourceLabel = ' (last commit)';
+
+      if (diffs.length === 0) {
+        log.success('No changes to review');
+        return;
+      }
+    }
   }
 
   const filteredDiffs = diffs.filter((diff) => {
@@ -88,7 +123,7 @@ async function runReview(args: { verbose?: boolean; json?: boolean; severity?: s
     if (statusCounts.deleted) statusParts.push(`${statusCounts.deleted} deleted`);
     if (statusCounts.renamed) statusParts.push(`${statusCounts.renamed} renamed`);
 
-    log.file(`${filteredDiffs.length} files: ${statusParts.join(', ')}`);
+    log.file(`${filteredDiffs.length} files${sourceLabel}: ${statusParts.join(', ')}`);
     log.plain(`   ${totalChanges} changes: +${totalAdditions} -${totalDeletions}`);
 
     const showFiles = verbose || filteredDiffs.length <= 5;
@@ -119,7 +154,13 @@ async function runReview(args: { verbose?: boolean; json?: boolean; severity?: s
 
   // Pipeline handles registration internally
   const pipeline = new Pipeline(agents, executors);
-  const result = await pipeline.execute(filteredDiffs, verbose, json, config.concurrency);
+  const result = await pipeline.execute(
+    filteredDiffs,
+    verbose,
+    json,
+    config.concurrency,
+    skipValidation
+  );
 
   const issuesFromResults = result.context.results.flatMap((r) => r.issues);
 
@@ -181,9 +222,9 @@ async function runReview(args: { verbose?: boolean; json?: boolean; severity?: s
       log.newline();
       if (severityFilter && severityFilter.length > 0) {
         const severityList = severityFilter.join(', ');
-        log.success(`No ${severityList} issues found`);
+        log.success(`No ${severityList} issues found 🎉`);
       } else {
-        log.success('No issues found');
+        log.success('No issues found 🎉');
       }
     }
 
@@ -191,9 +232,9 @@ async function runReview(args: { verbose?: boolean; json?: boolean; severity?: s
   }
 }
 
-const runCmd = defineCommand({
+const reviewCmd = defineCommand({
   meta: {
-    name: 'run',
+    name: 'review',
     description: 'Run code review on current changes',
   },
   args: {
@@ -209,9 +250,21 @@ const runCmd = defineCommand({
       type: 'string',
       description: 'Filter issues by severity (comma-separated: error,warning,info,suggestion)',
     },
+    base: {
+      type: 'string',
+      description: 'Base commit/branch to compare from (e.g., main, HEAD~3)',
+    },
+    head: {
+      type: 'string',
+      description: 'Head commit/branch to compare to (default: HEAD)',
+    },
+    'skip-validation': {
+      type: 'boolean',
+      description: 'Skip validation stage (show all issues without filtering)',
+    },
   },
   run: async ({ args }) => {
-    await runReview(args);
+    await runReview({ ...args, skipValidation: args['skip-validation'] });
   },
 });
 
@@ -222,7 +275,7 @@ export const main = defineCommand({
     description: 'AI-powered code review CLI',
   },
   subCommands: {
-    run: runCmd,
+    review: reviewCmd,
     config: configCmd,
     agents: agentsCmd,
     executors: executorsCmd,
@@ -230,7 +283,3 @@ export const main = defineCommand({
     cache: cacheCmd,
   },
 });
-
-if (require.main === module) {
-  runMain(main);
-}

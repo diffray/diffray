@@ -6,6 +6,23 @@ Diffray agents can now be defined using simple Markdown files, making them easy 
 
 Instead of writing configuration in JSON or code, you can create agents using markdown files with a straightforward structure that includes metadata, descriptions, and system prompts.
 
+## Why Agents?
+
+The agent-based architecture provides two key benefits:
+
+### Focused Analysis
+Each agent is a specialist with a single responsibility. A security agent only looks for vulnerabilities. A bug hunter only searches for logic errors. This focus leads to higher quality findings because the agent isn't trying to do everything at once.
+
+### Clean Context
+Every agent starts with a fresh context containing only what it needs:
+- Its specialized system prompt
+- The code diffs relevant to its domain
+- The rules that define what to look for
+
+No noise from unrelated checks. No confusion from mixed responsibilities. The agent sees only what matters for its task, which dramatically improves accuracy and reduces false positives.
+
+This is similar to how human code reviewers work best when they focus on one aspect at a time rather than trying to catch every possible issue in a single pass.
+
 ## File Format
 
 Each agent is defined in a separate `.md` file with the following structure:
@@ -46,7 +63,7 @@ Reference ../output-format.md for expected JSON structure.
 
 **ID** (required)
 - Unique identifier for the agent
-- Use lowercase with dashes (e.g., `code-review`, `security-scan`)
+- Use lowercase with dashes (e.g., `bug-hunter`, `security-scan`)
 - Must be unique across all agents
 
 **Agent Name** (required)
@@ -66,7 +83,7 @@ Reference ../output-format.md for expected JSON structure.
 - Disabled agents are not executed
 - Useful for temporarily turning off agents
 
-**Executor** (optional, default: 'default-cli')
+**Executor** (optional, default: 'test-cli')
 - ID of the executor that will run this agent
 - Examples: `claude-cli`, `openai-api`, `cerebras-api`
 - Must match an available executor
@@ -98,7 +115,7 @@ These agents are loaded automatically and can be used as examples.
 You can add custom agents to the same directory. The system will load all `.md` files and sort them by order.
 
 ### One Agent Per File
-Each `.md` file should contain exactly one agent definition. Use descriptive filenames like `code-review.md`, `security-scan.md`.
+Each `.md` file should contain exactly one agent definition. Use descriptive filenames like `bug-hunter.md`, `security-scan.md`.
 
 ## Creating Custom Agents
 
@@ -178,13 +195,13 @@ The parser will include all subsections as part of the system prompt.
 
 ## Examples
 
-### Example 1: Code Review Agent
+### Example 1: Bug Hunter Agent
 
 ```markdown
-# Agent: Code Review
+# Agent: Bug Hunter
 
 ---
-ID: code-review
+ID: bug-hunter
 Order: 1
 Enabled: true
 Executor: claude-cli
@@ -192,21 +209,17 @@ Executor: claude-cli
 
 ## Description
 
-Performs comprehensive code reviews to identify potential issues, bugs, and improvements.
+Detects bugs, logic errors and runtime issues that will cause code to fail or behave incorrectly.
 
 ## System Prompt
 
-You are a professional code reviewer with expertise in multiple programming languages.
+You are a bug detection specialist focused on identifying logic errors and runtime issues.
 
-### Logic Errors
-- Identify bugs and incorrect implementations
-- Check edge cases
-- Verify error handling
-
-### Code Quality
-- Assess readability and maintainability
-- Check naming conventions
-- Identify code duplication
+### Focus Areas
+- Null/undefined safety and potential NPE
+- Logic errors and incorrect conditionals
+- Edge cases and boundary conditions
+- Async/concurrency issues
 
 ### Output Format
 Reference ../output-format.md for JSON structure.
@@ -221,7 +234,7 @@ Reference ../output-format.md for JSON structure.
 ID: security-scan
 Order: 2
 Enabled: false
-Executor: default-cli
+Executor: test-cli
 ---
 
 ## Description

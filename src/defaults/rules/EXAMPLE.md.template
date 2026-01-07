@@ -1,8 +1,7 @@
 <!-- This is a template for creating custom rules. Copy this file and modify it to create your own rule. -->
 
 ---
-id: "custom-rule"
-name: "Custom Rule Template"
+name: "custom-rule"
 description: "Template for creating custom rules"
 patterns: ["**/*.js", "**/*.ts"]
 agent: "code-quality"

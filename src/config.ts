@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { join } from 'path';
 import { homedir } from 'os';
-import type { Agent, Rule } from './types';
+import type { Agent, RuleRef } from './types';
 
 export const ConfigSchema = z.object({
   excludePatterns: z.array(z.string()).default(['*.lock', '*.min.js', 'dist/*', 'node_modules/**']),
@@ -111,6 +111,6 @@ export function getAgents(config: Config): Agent[] {
   return config.agents || [];
 }
 
-export function getRules(config: Config): Rule[] {
+export function getRuleRefs(config: Config): RuleRef[] {
   return config.rules || [];
 }
