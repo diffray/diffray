@@ -1,0 +1,27 @@
+<!-- This is a template for creating custom agents. Copy and modify. -->
+
+# Agent: Custom Agent Template
+
+---
+ID: custom-agent
+Order: 10
+Enabled: false
+Executor: default-cli
+---
+
+## Description
+
+This is a template agent. Replace this text with your agent's description.
+Explain what this agent does and when it should be used.
+
+## System Prompt
+
+You are a custom agent. Replace this with your agent's instructions.
+
+### Focus Areas
+- Add your focus areas here
+- Use bullet points for clarity
+
+### Guidelines
+- Explain what to look for
+- Be specific about the analysis approach

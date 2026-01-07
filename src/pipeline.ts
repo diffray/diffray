@@ -7,20 +7,14 @@ import type {
   Agent,
   AgentExecutor,
   PipelineContext,
-  AgentResult,
   PipelineResult,
   Stage,
   StageResult,
-  ExecutionContext,
-} from "./types";
-import { log } from "./logger";
-import { MultiSpinner } from "./simple-spinner";
-import { getDefaultStages } from "./stages";
-import { CollapsibleOutput, formatLargeBlock } from "./interactive-output";
-import { parseIssuesAuto } from "./issue-parser";
-import { formatIssuesByFile } from "./issue-formatter";
-import { executorFactory } from "./executors/factory";
-import { agentRegistry } from "./agents/registry";
+} from './types';
+import { log } from './logger';
+import { getDefaultStages } from './stages';
+import { executorFactory } from './executors/factory';
+import { agentRegistry } from './agents/registry';
 
 export class Pipeline {
   private agents: Agent[] = [];
@@ -38,7 +32,7 @@ export class Pipeline {
 
     // Register Agents
     for (const agent of agents) {
-      agentRegistry.registerAgent(agent);
+      agentRegistry.register(agent);
     }
 
     this.stages = stages || getDefaultStages();
@@ -50,7 +44,7 @@ export class Pipeline {
   addAgent(agent: Agent): void {
     this.agents.push(agent);
     this.agents.sort((a, b) => a.order - b.order);
-    agentRegistry.registerAgent(agent);
+    agentRegistry.register(agent);
   }
 
   /**
@@ -58,7 +52,7 @@ export class Pipeline {
    */
   removeAgent(agentId: string): void {
     this.agents = this.agents.filter((a) => a.id !== agentId);
-    agentRegistry.removeAgent(agentId);
+    agentRegistry.remove(agentId);
   }
 
   /**
@@ -111,7 +105,7 @@ export class Pipeline {
 
     // Execute stages
     const stageResults: StageResult[] = [];
-    
+
     for (const stage of this.stages) {
       if (!stage.enabled) {
         continue;
@@ -120,7 +114,7 @@ export class Pipeline {
       try {
         const result = await stage.execute(context);
         stageResults.push(result);
-        
+
         if (!result.success) {
           log.error(`Stage ${stage.name} failed: ${result.error}`);
           break;
@@ -149,4 +143,3 @@ export class Pipeline {
     };
   }
 }
-

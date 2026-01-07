@@ -2,56 +2,54 @@
  * Cache management commands
  */
 
-import { log } from "../logger";
-import * as fs from "fs";
-import * as path from "path";
-
-const CACHE_DIR = `${process.env.HOME}/.diffray`;
-const CACHE_FILES = {
-  agents: "subagents.json",
-  executors: "executors.json",
-};
+import { log } from '../logger';
+import { getConfigPath, loadConfig, resetConfig, invalidateConfigCache } from '../config';
 
 /**
  * Show cache information
  */
 export async function showCache(): Promise<void> {
-  log.robot("Cache Information");
-  log.newline();
-  log.plain(`📁 Cache directory: ${CACHE_DIR}`);
+  log.robot('Configuration Information');
   log.newline();
 
-  // Check if cache directory exists
-  if (!fs.existsSync(CACHE_DIR)) {
-    log.info("Cache directory does not exist");
+  const configPath = getConfigPath();
+  log.plain(`Location: ${configPath}`);
+  log.newline();
+
+  // Check if config file exists
+  const configFile = Bun.file(configPath);
+  if (!(await configFile.exists())) {
+    log.info('Configuration file does not exist (using defaults)');
     return;
   }
 
-  // Show each cache file
-  for (const [type, filename] of Object.entries(CACHE_FILES)) {
-    const filepath = path.join(CACHE_DIR, filename);
+  // Show file information
+  const stats = await configFile.stat();
+  const size = (stats.size / 1024).toFixed(2);
+  const modified = stats.mtime.toLocaleString();
 
-    if (fs.existsSync(filepath)) {
-      const stats = fs.statSync(filepath);
-      const size = (stats.size / 1024).toFixed(2);
-      const modified = stats.mtime.toLocaleString();
+  log.success(`config.json`);
+  log.plain(`  Size: ${size} KB`);
+  log.plain(`  Modified: ${modified}`);
+  log.newline();
 
-      log.success(`✓ ${type}: ${filename}`);
-      log.plain(`  Size: ${size} KB`);
-      log.plain(`  Modified: ${modified}`);
+  // Try to read and show configuration details
+  try {
+    const config = await loadConfig();
 
-      // Try to read and show count
-      try {
-        const content = await Bun.file(filepath).json();
-        if (Array.isArray(content)) {
-          log.plain(`  Items: ${content.length}`);
-        }
-      } catch (e) {
-        log.warn(`  Failed to parse: ${e}`);
-      }
-    } else {
-      log.info(`✗ ${type}: not cached`);
+    log.plain('Contents:');
+    if (config.agents) {
+      log.plain(`  • Agents: ${config.agents.length}`);
     }
+    if (config.executors) {
+      log.plain(`  • Executors: ${config.executors.length}`);
+    }
+    if (config.rules) {
+      log.plain(`  • Rules: ${config.rules.length}`);
+    }
+    log.newline();
+  } catch (e) {
+    log.warn(`Failed to parse configuration: ${e}`);
     log.newline();
   }
 }
@@ -60,34 +58,22 @@ export async function showCache(): Promise<void> {
  * Clear all cache files
  */
 export async function clearCache(): Promise<void> {
-  log.robot("Clearing cache...");
+  log.robot('Resetting configuration...');
   log.newline();
 
-  let cleared = 0;
-  let errors = 0;
+  try {
+    // Reset configuration to defaults
+    await resetConfig();
 
-  for (const [type, filename] of Object.entries(CACHE_FILES)) {
-    const filepath = path.join(CACHE_DIR, filename);
+    // Clear in-memory cache
+    invalidateConfigCache();
 
-    if (fs.existsSync(filepath)) {
-      try {
-        fs.unlinkSync(filepath);
-        log.success(`✓ Cleared ${type} cache: ${filename}`);
-        cleared++;
-      } catch (error) {
-        log.error(`✗ Failed to clear ${type}: ${error}`);
-        errors++;
-      }
-    } else {
-      log.info(`- ${type}: already empty`);
-    }
-  }
-
-  log.newline();
-  if (errors === 0) {
-    log.success(`Cache cleared successfully (${cleared} file(s))`);
-  } else {
-    log.warn(`Cache cleared with ${errors} error(s)`);
+    log.success('Configuration reset to defaults');
+    log.success('In-memory cache cleared');
+    log.newline();
+    log.success('Configuration reset successfully');
+  } catch (error) {
+    log.error(`Failed to reset configuration: ${error}`);
   }
 }
 
@@ -95,30 +81,33 @@ export async function clearCache(): Promise<void> {
  * Show what the cache contains
  */
 export async function explainCache(): Promise<void> {
-  log.robot("About diffray Cache");
+  log.robot('About diffray Configuration');
   log.newline();
 
-  log.plain("The cache stores data loaded from the backend to improve performance:");
+  log.plain('diffray uses a unified configuration file (config.json) that stores all settings:');
   log.newline();
 
-  log.plain("📦 Cached Data:");
-  log.plain("  • Agents (subagents.json) - AI review agents configuration");
-  log.plain("  • Executors (executors.json) - Executor configurations");
+  log.plain('Configuration Data:');
+  log.plain('  ▸ Agents - AI review agents configuration');
+  log.plain('  ▸ Executors - Executor configurations');
+  log.plain('  ▸ Rules - Review rules and criteria');
+  log.plain('  ▸ Stages - Pipeline stages configuration');
+  log.newline();
+  log.plain('Cache Behavior:');
+  log.plain('  ▸ Configuration is loaded from config.json');
+  log.plain('  ▸ In-memory caching improves performance');
+  log.plain('  ▸ Changes are automatically saved to disk');
+  log.plain("  ▸ Use 'diffray agents sync' to refresh from Markdown files");
+  log.plain("  ▸ Use 'diffray rules sync' to refresh from YAML files");
   log.newline();
 
-  log.plain("🔄 Cache Behavior:");
-  log.plain("  • When you run diffray, it first checks the cache");
-  log.plain("  • If cache exists, it uses cached data (faster)");
-  log.plain("  • If no cache, it loads from backend and saves to cache");
-  log.plain("  • Use 'diffray agents sync' or 'diffray executors sync' to refresh");
+  log.plain('Location: ~/.diffray/config.json');
   log.newline();
 
-  log.plain("📁 Location: ~/.diffray/");
-  log.newline();
-
-  log.plain("💡 When to clear cache:");
-  log.plain("  • After updating backend configuration");
-  log.plain("  • When troubleshooting agent/executor issues");
-  log.plain("  • If cache becomes corrupted");
+  log.plain('When to reset:');
+  log.plain('  • To restore default settings');
+  log.plain('  • When troubleshooting configuration issues');
+  log.plain('  • If configuration becomes corrupted');
+  log.plain('  • Note: Resetting will clear all custom settings');
   log.newline();
 }

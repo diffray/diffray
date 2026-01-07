@@ -5,8 +5,8 @@ import {
   getConfigPath,
   configExists,
   type Config,
-} from "../config";
-import { log } from "../logger";
+} from '../config';
+import { log } from '../logger';
 
 /**
  * Show current configuration
@@ -15,9 +15,9 @@ export async function showConfig(): Promise<void> {
   const config = await loadConfig();
   const path = getConfigPath();
 
-  log.plain("📋 Current Configuration\n");
-  console.log(`Location: ${path}\n`);
-  console.log(JSON.stringify(config, null, 2));
+  log.plain('Current Configuration\n');
+  log.plain(`Location: ${path}\n`);
+  log.plain(JSON.stringify(config, null, 2));
 }
 
 /**
@@ -27,17 +27,17 @@ export async function initConfig(): Promise<void> {
   const exists = await configExists();
 
   if (exists) {
-    log.plain("⚠️  Configuration file already exists");
-    console.log(`Location: ${getConfigPath()}`);
+    log.warn('Configuration file already exists');
+    log.plain(`Location: ${getConfigPath()}`);
     log.plain("\nUse 'diffray config show' to view current configuration");
     log.plain("Use 'diffray config reset' to reset to defaults");
     return;
   }
 
   const config = await loadConfig(); // This will create default config
-  log.plain("✅ Configuration file created");
-  console.log(`Location: ${getConfigPath()}\n`);
-  console.log(JSON.stringify(config, null, 2));
+  log.success('Configuration file created');
+  log.plain(`Location: ${getConfigPath()}\n`);
+  log.plain(JSON.stringify(config, null, 2));
 }
 
 /**
@@ -45,8 +45,8 @@ export async function initConfig(): Promise<void> {
  */
 export async function resetConfigCommand(): Promise<void> {
   const config = await resetConfig();
-  log.plain("✅ Configuration reset to defaults\n");
-  console.log(JSON.stringify(config, null, 2));
+  log.success('Configuration reset to defaults');
+  log.plain(JSON.stringify(config, null, 2));
 }
 
 /**
@@ -56,10 +56,10 @@ export async function setConfigValue(key: string, value: string): Promise<void> 
   const config = await loadConfig();
 
   // Parse the key path (e.g., "ai.provider" -> ["ai", "provider"])
-  const keys = key.split(".");
+  const keys = key.split('.');
 
   if (keys.length !== 2) {
-    log.error("❌ Invalid key format. Use format: section.key (e.g., ai.provider)");
+    log.error('Invalid key format. Use format: section.key (e.g., ai.provider)');
     process.exit(1);
   }
 
@@ -67,25 +67,28 @@ export async function setConfigValue(key: string, value: string): Promise<void> 
   const field = keys[1];
 
   if (!section || !field) {
-    log.error("❌ Invalid key format. Use format: section.key (e.g., ai.provider)");
+    log.error('Invalid key format. Use format: section.key (e.g., ai.provider)');
     process.exit(1);
   }
 
   // Validate section
-  if (!["backend", "ai", "review", "output"].includes(section)) {
-    log.error(`❌ Invalid section: ${section}`);
-    log.plain("Valid sections: backend, ai, review, output");
+  if (!['output'].includes(section)) {
+    log.error(`Invalid section: ${section}`);
+    log.plain('Valid sections: output');
+    log.plain(
+      'Note: agents, executors, rules, and stages are managed via their respective commands'
+    );
     process.exit(1);
   }
 
   // Parse value based on type
   // Keep API keys and URLs as strings even if they look like numbers
-  const stringOnlyFields = ["apiKey", "url", "baseUrl"];
+  const stringOnlyFields = ['apiKey', 'url', 'baseUrl'];
   let parsedValue: string | number | boolean = value;
 
-  if (value === "true") {
+  if (value === 'true') {
     parsedValue = true;
-  } else if (value === "false") {
+  } else if (value === 'false') {
     parsedValue = false;
   } else if (!stringOnlyFields.includes(field) && !isNaN(Number(value))) {
     parsedValue = Number(value);
@@ -95,8 +98,8 @@ export async function setConfigValue(key: string, value: string): Promise<void> 
   const sectionKey = section as keyof Config;
   const currentSection = config[sectionKey];
 
-  if (typeof currentSection !== "object" || currentSection === null) {
-    log.error(`❌ Invalid section: ${section}`);
+  if (typeof currentSection !== 'object' || currentSection === null) {
+    log.error(`Invalid section: ${section}`);
     process.exit(1);
   }
 
@@ -110,9 +113,9 @@ export async function setConfigValue(key: string, value: string): Promise<void> 
 
   try {
     await saveConfig(updated);
-    log.success(`✅ Updated ${key} = ${parsedValue}`);
+    log.success(`Updated ${key} = ${parsedValue}`);
   } catch (error) {
-    log.error(`❌ Failed to update config: ${error}`);
+    log.error(`Failed to update config: ${error}`);
     process.exit(1);
   }
 }
@@ -123,9 +126,9 @@ export async function setConfigValue(key: string, value: string): Promise<void> 
 export async function getConfigValue(key: string): Promise<void> {
   const config = await loadConfig();
 
-  const keys = key.split(".");
+  const keys = key.split('.');
   if (keys.length !== 2) {
-    log.error("❌ Invalid key format. Use format: section.key (e.g., ai.provider)");
+    log.error('Invalid key format. Use format: section.key (e.g., ai.provider)');
     process.exit(1);
   }
 
@@ -133,24 +136,24 @@ export async function getConfigValue(key: string): Promise<void> {
   const field = keys[1];
 
   if (!section || !field) {
-    log.error("❌ Invalid key format. Use format: section.key (e.g., ai.provider)");
+    log.error('Invalid key format. Use format: section.key (e.g., ai.provider)');
     process.exit(1);
   }
 
   const sectionData = config[section as keyof Config];
 
-  if (!sectionData || typeof sectionData !== "object") {
-    log.error(`❌ Invalid section: ${section}`);
+  if (!sectionData || typeof sectionData !== 'object') {
+    log.error(`Invalid section: ${section}`);
     process.exit(1);
   }
 
   const value = (sectionData as Record<string, unknown>)[field];
   if (value === undefined) {
-    console.error(`❌ Invalid key: ${field}`);
+    log.error(`Invalid key: ${field}`);
     process.exit(1);
   }
 
-  console.log(value);
+  log.plain(String(value));
 }
 
 /**
@@ -164,14 +167,13 @@ export async function editConfig(): Promise<void> {
     await initConfig();
   }
 
-  const editor = process.env.EDITOR || "nano";
+  const editor = process.env.EDITOR || 'nano';
   log.info(`Opening ${path} in ${editor}...`);
 
   try {
     await Bun.$`${editor} ${path}`;
   } catch (error) {
-    log.error(`❌ Failed to open editor: ${error}`);
+    log.error(`Failed to open editor: ${error}`);
     process.exit(1);
   }
 }
-

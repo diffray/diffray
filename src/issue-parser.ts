@@ -2,12 +2,31 @@
  * Parse issues from agent output
  */
 
-import type { Issue, IssueSeverity } from "./types";
+import type { Issue, IssueSeverity } from './types';
+
+/**
+ * Raw issue item from JSON parsing
+ */
+interface RawIssueItem {
+  file?: string;
+  lineStart?: number;
+  lineEnd?: number;
+  line?: number;
+  severity?: string;
+  shortDescription?: string;
+  short?: string;
+  message?: string;
+  fullDescription?: string;
+  description?: string;
+  suggestion?: string;
+  agentId?: string;
+  agentName?: string;
+}
 
 /**
  * Parse issues from structured agent output
  * Expected format:
- * 
+ *
  * FILE: path/to/file.ts
  * LINES: 10-15
  * SEVERITY: error
@@ -18,7 +37,10 @@ import type { Issue, IssueSeverity } from "./types";
  */
 export function parseIssues(output: string, agentId: string, agentName: string): Issue[] {
   const issues: Issue[] = [];
-  const blocks = output.split("---").map((b) => b.trim()).filter((b) => b.length > 0);
+  const blocks = output
+    .split('---')
+    .map((b) => b.trim())
+    .filter((b) => b.length > 0);
 
   for (const block of blocks) {
     const issue = parseIssueBlock(block, agentId, agentName);
@@ -34,22 +56,22 @@ export function parseIssues(output: string, agentId: string, agentName: string):
  * Parse a single issue block
  */
 function parseIssueBlock(block: string, agentId: string, agentName: string): Issue | null {
-  const lines = block.split("\n").map((l) => l.trim());
+  const lines = block.split('\n').map((l) => l.trim());
 
-  let file = "";
+  let file = '';
   let lineStart = 0;
   let lineEnd = 0;
-  let severity: IssueSeverity = "info";
-  let shortDescription = "";
-  let fullDescription = "";
+  let severity: IssueSeverity = 'info';
+  let shortDescription = '';
+  let fullDescription = '';
   let suggestion: string | undefined;
 
   for (const line of lines) {
-    if (line.startsWith("FILE:")) {
+    if (line.startsWith('FILE:')) {
       file = line.substring(5).trim();
-    } else if (line.startsWith("LINES:")) {
+    } else if (line.startsWith('LINES:')) {
       const range = line.substring(6).trim();
-      const parts = range.split("-");
+      const parts = range.split('-');
       const firstPart = parts[0];
       if (firstPart) {
         lineStart = parseInt(firstPart, 10);
@@ -59,18 +81,18 @@ function parseIssueBlock(block: string, agentId: string, agentName: string): Iss
       if (secondPart) {
         lineEnd = parseInt(secondPart, 10);
       }
-    } else if (line.startsWith("SEVERITY:")) {
+    } else if (line.startsWith('SEVERITY:')) {
       const sev = line.substring(9).trim() as IssueSeverity;
-      if (["error", "warning", "info", "suggestion"].includes(sev)) {
+      if (['error', 'warning', 'info', 'suggestion'].includes(sev)) {
         severity = sev;
       }
-    } else if (line.startsWith("SHORT:")) {
+    } else if (line.startsWith('SHORT:')) {
       shortDescription = line.substring(6).trim();
-    } else if (line.startsWith("DESCRIPTION:")) {
+    } else if (line.startsWith('DESCRIPTION:')) {
       fullDescription = line.substring(12).trim();
-    } else if (line.startsWith("FULL:")) {
+    } else if (line.startsWith('FULL:')) {
       fullDescription = line.substring(5).trim();
-    } else if (line.startsWith("SUGGESTION:")) {
+    } else if (line.startsWith('SUGGESTION:')) {
       suggestion = line.substring(11).trim();
     }
   }
@@ -92,8 +114,8 @@ function parseIssueBlock(block: string, agentId: string, agentName: string): Iss
     /good practice/i,
   ];
 
-  const combinedText = `${shortDescription} ${fullDescription} ${suggestion || ""}`.toLowerCase();
-  if (noActionPatterns.some(pattern => pattern.test(combinedText))) {
+  const combinedText = `${shortDescription} ${fullDescription} ${suggestion || ''}`.toLowerCase();
+  if (noActionPatterns.some((pattern) => pattern.test(combinedText))) {
     return null;
   }
 
@@ -111,42 +133,63 @@ function parseIssueBlock(block: string, agentId: string, agentName: string): Iss
 }
 
 /**
- * Parse issues from JSON format
- * Expected format:
- * {
- *   "issues": [
- *     {
- *       "file": "path/to/file.ts",
- *       "lineStart": 10,
- *       "lineEnd": 15,
- *       "severity": "error",
- *       "shortDescription": "Variable 'x' is never used",
- *       "fullDescription": "The variable 'x' is declared but never used",
- *       "suggestion": "Remove the unused variable"
- *     }
- *   ]
- * }
+ * Parse issue item from JSON object
  */
-export function parseIssuesFromJSON(output: string, agentId: string, agentName: string): Issue[] {
-  try {
-    const data = JSON.parse(output);
+function parseIssueItem(item: RawIssueItem, agentId?: string, agentName?: string): Issue {
+  return {
+    file: item.file || '',
+    lineStart: item.lineStart || item.line || 0,
+    lineEnd: item.lineEnd || item.lineStart || item.line || 0,
+    severity: (item.severity || 'info') as IssueSeverity,
+    shortDescription: item.shortDescription || item.short || item.message || '',
+    fullDescription: item.fullDescription || item.description || item.shortDescription || '',
+    suggestion: item.suggestion,
+    agentId: agentId ?? item.agentId ?? 'unknown',
+    agentName: agentName ?? item.agentName ?? 'Unknown Agent',
+  };
+}
 
-    const issues = Array.isArray(data) ? data : data.issues;
+/**
+ * Extract JSON array from text (handles extra text around JSON)
+ */
+export function extractJsonArray(text: string): RawIssueItem[] | null {
+  const jsonMatch = text.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) return null;
+
+  try {
+    const data = JSON.parse(jsonMatch[0]);
+    return Array.isArray(data) ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Parse issues from JSON format
+ * @param output - JSON string or text containing JSON
+ * @param agentId - Optional agent ID (if not provided, uses value from JSON)
+ * @param agentName - Optional agent name (if not provided, uses value from JSON)
+ */
+export function parseIssuesFromJSON(output: string, agentId?: string, agentName?: string): Issue[] {
+  try {
+    // Try direct parse first
+    let issues: RawIssueItem[] | null = null;
+
+    try {
+      const data = JSON.parse(output) as RawIssueItem[] | { issues?: RawIssueItem[] };
+      issues = Array.isArray(data) ? data : (data.issues ?? null);
+    } catch {
+      // Try extracting JSON array from text
+      issues = extractJsonArray(output);
+    }
+
     if (!Array.isArray(issues)) {
       return [];
     }
 
-    return issues.map((item: any) => ({
-      file: item.file || "",
-      lineStart: item.lineStart || item.line || 0,
-      lineEnd: item.lineEnd || item.lineStart || item.line || 0,
-      severity: (item.severity || "info") as IssueSeverity,
-      shortDescription: item.shortDescription || item.short || item.message || "",
-      fullDescription: item.fullDescription || item.description || item.shortDescription || "",
-      suggestion: item.suggestion,
-      agentId,
-      agentName,
-    })).filter((issue: Issue) => issue.file && issue.shortDescription && issue.lineStart > 0);
+    return issues
+      .map((item) => parseIssueItem(item, agentId, agentName))
+      .filter((issue) => issue.file && issue.shortDescription && issue.lineStart > 0);
   } catch {
     return [];
   }
@@ -157,7 +200,7 @@ export function parseIssuesFromJSON(output: string, agentId: string, agentName: 
  */
 export function parseIssuesAuto(output: string, agentId: string, agentName: string): Issue[] {
   // Try JSON first
-  if (output.trim().startsWith("{") || output.trim().startsWith("[")) {
+  if (output.trim().startsWith('{') || output.trim().startsWith('[')) {
     const jsonIssues = parseIssuesFromJSON(output, agentId, agentName);
     if (jsonIssues.length > 0) {
       return jsonIssues;
