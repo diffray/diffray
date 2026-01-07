@@ -163,7 +163,8 @@ interface CLIConfig {
 }
 
 interface StreamOptions {
-  verbose: boolean; // Show streaming output (thinking, tools, preliminary issues)
+  stream: boolean; // Show thinking + preliminary issues
+  verbose: boolean; // Show raw JSON
   agentName?: string; // Agent name for issue formatting
 }
 
@@ -218,20 +219,22 @@ async function streamClaudeCli(
         try {
           const message = JSON.parse(line);
 
-          // In verbose mode, show streaming info
+          // Verbose mode: raw JSON output
           if (opts.verbose) {
+            log.plain(`\x1b[90m${line}\x1b[0m`);
+          }
+
+          // Stream mode: thinking + tools + preliminary issues
+          if (opts.stream && !opts.verbose) {
             if (message.type === 'system') {
-              // Show init info compactly
               const tools = message.tools?.length || 0;
               const model = message.model || 'unknown';
-              log.plain(`\x1b[90m📋 Session: ${model}, ${tools} tools\x1b[0m`);
+              log.plain(`\x1b[90m📋 ${model}, ${tools} tools\x1b[0m`);
             } else if (message.type === 'assistant' && message.message?.content) {
-              // Show tool use
               for (const content of message.message.content) {
                 if (content.type === 'tool_use') {
-                  log.plain(`\x1b[36m🔧 Tool: ${content.name}\x1b[0m`);
+                  log.plain(`\x1b[36m🔧 ${content.name}\x1b[0m`);
                 } else if (content.type === 'text' && content.text) {
-                  // Show thinking (truncated)
                   const text = content.text.slice(0, 200);
                   const truncated = content.text.length > 200 ? '...' : '';
                   log.plain(`\x1b[90m💭 ${text}${truncated}\x1b[0m`);
@@ -241,8 +244,7 @@ async function streamClaudeCli(
           }
 
           if (message.type === 'result') {
-            if (opts.verbose) {
-              // Show cost/usage compactly
+            if (opts.stream && !opts.verbose) {
               const cost = message.total_cost_usd
                 ? `$${message.total_cost_usd.toFixed(4)}`
                 : '';
@@ -253,8 +255,8 @@ async function streamClaudeCli(
             }
             if (message.subtype === 'success' && message.result) {
               finalResult = message.result;
-              // Show preliminary issues in verbose mode
-              if (opts.verbose && opts.agentName) {
+              // Show preliminary issues in stream mode
+              if (opts.stream && opts.agentName) {
                 formatPreliminaryIssues(finalResult, opts.agentName);
               }
             } else if (message.subtype === 'error') {
@@ -357,8 +359,9 @@ function createCLIExecutor(config: CLIConfig): Executor {
               : [config.command, ...streamArgs, fullPrompt];
           }
 
-          // Only show in verbose mode (default is quiet streaming)
+          // stream = thinking + issues, verbose = raw JSON
           const output = await streamClaudeCli(cmdArgs, config.env || {}, config.timeout || 60, {
+            stream: ctx.stream ?? false,
             verbose: ctx.verbose ?? false,
             agentName: ctx.agent.name,
           });

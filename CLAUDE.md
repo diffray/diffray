@@ -56,13 +56,14 @@ Stages (sequential):
 
 **Claude CLI Executor**:
 - Uses `claude -p --output-format stream-json --verbose` for streaming
-- Default: quiet streaming (no output during execution)
-- With `--verbose` shows:
-  - `📋` - Session info (model, tools count)
+- Default: quiet (no streaming output)
+- With `--stream` shows:
+  - `📋` - Session info (model, tools)
   - `🔧` - Tool use (Read, Grep, etc.)
   - `💭` - Thinking (truncated to 200 chars)
-  - `📊` - Cost and duration
-  - `⚠ Preliminary issues` - Formatted issues before validation
+  - `📊` - Cost/duration
+  - `⚠ Preliminary issues` - Formatted before validation
+- With `--verbose`: raw JSON stream
 - Default model: `sonnet`, timeout: 120s
 
 **Rules** (`src/defaults/rules/*.md`):
@@ -107,7 +108,8 @@ interface Issue {
     - When `--base` specified with no uncommitted changes, temporarily checks out `--head` ref for CLI tools, then restores original branch
   - `--severity <list>` - Filter by severity (comma-separated: critical,high,medium,low)
   - `--json` - Output results in JSON format
-  - `--verbose` - Show streaming (💭 thinking, 🔧 tools, ⚠ preliminary issues)
+  - `--stream` - Show streaming (💭 thinking, 🔧 tools, ⚠ preliminary issues)
+  - `--verbose` - Show raw JSON stream
   - `--skip-validation` - Skip validation stage
   - Without `--base`: reviews uncommitted changes, or last commit if clean
 - `diffray agents sync` - Reload agents from MD files
