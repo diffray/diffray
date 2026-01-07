@@ -8,7 +8,8 @@ Return your findings as a **JSON array** with the following structure:
     "file": "path/to/file.ts",
     "lineStart": 10,
     "lineEnd": 15,
-    "severity": "error|warning|info|suggestion",
+    "severity": "critical|high|medium|low",
+    "category": "security|performance|bug|quality|style|docs",
     "shortDescription": "Brief one-line description",
     "fullDescription": "Detailed description of the issue",
     "suggestion": "How to fix this issue (optional)"
@@ -21,7 +22,8 @@ Return your findings as a **JSON array** with the following structure:
 - **file**: Relative path to the file containing the issue
 - **lineStart**: Starting line number of the issue
 - **lineEnd**: Ending line number of the issue (can be same as lineStart)
-- **severity**: One of: `error`, `warning`, `info`, `suggestion`
+- **severity**: One of: `critical`, `high`, `medium`, `low`
+- **category**: One of: `security`, `performance`, `bug`, `quality`, `style`, `docs`
 - **shortDescription**: Brief one-line summary of the issue
 - **fullDescription**: Detailed explanation of what's wrong
 - **suggestion**: (Optional) Recommendation on how to fix the issue
@@ -45,7 +47,8 @@ Return your findings as a **JSON array** with the following structure:
     "file": "src/utils/validator.ts",
     "lineStart": 42,
     "lineEnd": 45,
-    "severity": "error",
+    "severity": "high",
+    "category": "bug",
     "shortDescription": "Potential null pointer dereference",
     "fullDescription": "The 'user' object may be null at this point, but is accessed without a null check. This will cause a runtime error if user is null.",
     "suggestion": "Add a null check before accessing user properties: if (user) { ... }"

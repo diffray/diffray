@@ -10,10 +10,13 @@ import type {
   Issue,
   ExecutionContext,
   Agent,
+  AgentExecutor,
   IssueSeverity,
+  IssueCategory,
 } from '../types';
 import { log, Spinner } from '../logger';
 import { executorFactory } from '../executors';
+import { loadConfig } from '../config';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -74,7 +77,8 @@ function parseValidatedIssues(output: string): Issue[] {
         file: item.file || '',
         lineStart: item.lineStart || item.line || 0,
         lineEnd: item.lineEnd || item.lineStart || item.line || 0,
-        severity: (item.severity || 'info') as IssueSeverity,
+        severity: (item.severity || 'medium') as IssueSeverity,
+        category: (item.category || 'quality') as IssueCategory,
         shortDescription: item.shortDescription || item.short || item.message || '',
         fullDescription: item.fullDescription || item.description || item.shortDescription || '',
         suggestion: item.suggestion,
@@ -130,9 +134,28 @@ export function createValidationStage(): Stage {
         };
       }
 
-      // Get the first enabled executor
+      // Get executor from config or use first enabled
+      const config = await loadConfig();
       const executors = executorFactory.listExecutors();
-      const executor = executors.find((e) => e.enabled);
+
+      let executor: AgentExecutor | undefined;
+
+      // Check if specific executor is configured for validation
+      if (config.validation?.executor) {
+        executor = executors.find((e) => e.name === config.validation.executor && e.enabled);
+        if (!executor) {
+          if (!context.quiet) {
+            log.warn(
+              `Configured validation executor '${config.validation.executor}' not found or disabled, using default`
+            );
+          }
+        }
+      }
+
+      // Fall back to first enabled executor
+      if (!executor) {
+        executor = executors.find((e) => e.enabled);
+      }
 
       if (!executor) {
         if (!context.quiet) {
@@ -146,6 +169,12 @@ export function createValidationStage(): Stage {
         };
       }
 
+      // Apply model override if configured
+      let finalExecutor: AgentExecutor = executor;
+      if (config.validation?.model) {
+        finalExecutor = { ...executor, model: config.validation.model } as AgentExecutor;
+      }
+
       // Load validation prompt from file
       const validationPrompt = await loadValidationPrompt();
 
@@ -153,11 +182,17 @@ export function createValidationStage(): Stage {
       const batches = chunk(allIssues, VALIDATION_BATCH_SIZE);
       const needsBatching = batches.length > 1;
 
+      // Get model from executor (type-safe access)
+      const executorModel = 'model' in finalExecutor ? finalExecutor.model : undefined;
+
       if (!context.quiet) {
         if (needsBatching) {
           log.sync(`Validating ${allIssues.length} issues in ${batches.length} batches...`);
         } else {
           log.sync(`Validating ${allIssues.length} issue(s)...`);
+        }
+        if (context.verbose) {
+          log.plain(`   Executor: ${finalExecutor.name}${executorModel ? ` (model: ${executorModel})` : ''}`);
         }
       }
 
@@ -196,23 +231,24 @@ export function createValidationStage(): Stage {
             systemPrompt: validationPrompt,
             enabled: true,
             order: 999,
-            executor: executor.id,
+            executor: finalExecutor.id,
           };
 
           // Create execution context
           const execContext: ExecutionContext = {
             agent: validationAgent,
-            executor,
+            executor: finalExecutor,
             input: issuesJson,
             systemPrompt: validationPrompt,
             verbose: context.verbose,
+            quiet: context.quiet,
           };
 
           if (context.verbose && !context.quiet) {
             log.plain(
               `\nValidation prompt${needsBatching ? ` (batch ${batchIdx + 1}/${batches.length})` : ''}:`
             );
-            log.plain(`   Executor: ${executor.name}`);
+            log.plain(`   Executor: ${finalExecutor.name}`);
             log.plain(`   Issues to validate: ${batch.length}`);
             log.plain('─'.repeat(80));
             log.plain(`${validationPrompt}\n\n# Input:\n<issues JSON ${issuesJson.length} chars>`);

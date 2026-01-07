@@ -9,9 +9,10 @@ import { loadConfig } from './config';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
-// ============ Output Format (cached) ============
+// ============ Prompt Loaders (cached) ============
 
 let outputFormatCache: string | null = null;
+let claudeCliSuffixCache: string | null = null;
 
 async function loadOutputFormat(): Promise<string> {
   if (outputFormatCache) return outputFormatCache;
@@ -23,6 +24,19 @@ async function loadOutputFormat(): Promise<string> {
     return outputFormatCache;
   } catch {
     return '\n\n# Output Format\n\nReturn results as JSON array: []';
+  }
+}
+
+async function loadClaudeCliSuffix(): Promise<string> {
+  if (claudeCliSuffixCache) return claudeCliSuffixCache;
+  try {
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname(__filename);
+    const suffixPath = join(__dirname, 'defaults', 'prompts', 'claude-cli-suffix.md');
+    claudeCliSuffixCache = await Bun.file(suffixPath).text();
+    return claudeCliSuffixCache;
+  } catch {
+    return '';
   }
 }
 
@@ -143,6 +157,126 @@ interface CLIConfig {
   useStdin?: boolean;
   model?: string;
   systemPromptArg?: string;
+  systemPromptSuffix?: string;
+}
+
+interface StreamOptions {
+  showThinking: boolean; // Show 💭 thinking text
+  verbose: boolean; // Show raw JSON stream (system, tools, costs)
+}
+
+async function streamClaudeCli(
+  cmdArgs: string[],
+  env: Record<string, string>,
+  timeout: number,
+  opts: StreamOptions
+): Promise<string> {
+  const proc = Bun.spawn(cmdArgs, {
+    stdout: 'pipe',
+    stderr: 'pipe',
+    env: { ...process.env, ...env },
+  });
+
+  const timeoutMs = timeout * 1000;
+  const timer = setTimeout(() => proc.kill(), timeoutMs);
+
+  let finalResult = '';
+  let stderrText = '';
+
+  try {
+    const reader = proc.stdout.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+
+        try {
+          const message = JSON.parse(line);
+
+          // In verbose mode, show raw JSON for system/tool messages
+          if (opts.verbose) {
+            if (message.type === 'system') {
+              log.plain(`📋 ${line}`);
+            } else if (message.type === 'assistant' && message.message?.content) {
+              // Check for tool use
+              const hasTools = message.message.content.some(
+                (c: { type: string }) => c.type === 'tool_use'
+              );
+              if (hasTools) {
+                log.plain(`🔧 ${line}`);
+              }
+            }
+          }
+
+          if (message.type === 'assistant' && message.message?.content) {
+            for (const content of message.message.content) {
+              if (content.type === 'text' && content.text && opts.showThinking) {
+                log.plain(`💭 ${content.text}`);
+              }
+            }
+          } else if (message.type === 'result') {
+            if (opts.verbose) {
+              // Show result metadata (cost, usage, etc) but not the full result text
+              const meta = { ...message };
+              delete meta.result; // Don't show result text twice
+              log.plain(`📊 ${JSON.stringify(meta)}`);
+            }
+            if (message.subtype === 'success' && message.result) {
+              finalResult = message.result;
+              if (process.env.DEBUG) {
+                log.plain(`📦 Result field (${finalResult.length} chars): ${finalResult.slice(0, 300)}...`);
+              }
+            } else if (message.subtype === 'error') {
+              throw new Error(message.error || 'Claude CLI returned error');
+            }
+          }
+        } catch (e) {
+          if (process.env.DEBUG) {
+            log.plain(`📡 Stream parse error: ${line}`);
+          }
+        }
+      }
+    }
+
+    if (buffer.trim()) {
+      try {
+        const message = JSON.parse(buffer);
+        if (message.type === 'result' && message.subtype === 'success' && message.result) {
+          finalResult = message.result;
+        }
+      } catch {
+        // Ignore final buffer parse errors
+      }
+    }
+
+    const stderr = await new Response(proc.stderr).text();
+    stderrText = stderr;
+    await proc.exited;
+    clearTimeout(timer);
+
+    if (proc.exitCode === null) {
+      throw new Error(`Process killed (timeout after ${timeout}s or signal)${stderrText ? `: ${stderrText}` : ''}`);
+    }
+
+    if (proc.exitCode !== 0) {
+      throw new Error(`Exit code ${proc.exitCode}: ${stderrText}`);
+    }
+
+    return finalResult;
+  } catch (e) {
+    clearTimeout(timer);
+    proc.kill();
+    throw e;
+  }
 }
 
 function createCLIExecutor(config: CLIConfig): Executor {
@@ -157,23 +291,77 @@ function createCLIExecutor(config: CLIConfig): Executor {
         const format = await loadOutputFormat();
         const userPrompt = buildUserPrompt(ctx.input, format);
 
+        // Build system prompt with optional suffix
+        // For claude-cli, load suffix from file if not provided inline
+        let suffix = config.systemPromptSuffix;
+        if (config.name === 'claude-cli' && !suffix) {
+          suffix = await loadClaudeCliSuffix();
+        }
+        const systemPrompt = suffix ? `${ctx.systemPrompt}\n\n${suffix}` : ctx.systemPrompt;
+
         // Build args, injecting model if specified
         let finalArgs = config.args || [];
         if (config.model) {
           finalArgs = [...finalArgs, '--model', config.model];
         }
 
+        // Always use streaming for claude-cli to show thinking
+        if (config.name === 'claude-cli') {
+          // Use streaming JSON format - shows thinking unless quiet mode
+          // Claude CLI requires --verbose when using stream-json
+          const streamArgs = finalArgs.map(arg =>
+            arg === '--output-format' ? '--output-format' : arg
+          );
+          const jsonIndex = streamArgs.indexOf('json');
+          if (jsonIndex !== -1) {
+            streamArgs[jsonIndex] = 'stream-json';
+          }
+          // Add --verbose flag required for stream-json
+          streamArgs.push('--verbose');
+
+          let cmdArgs: string[];
+          if (config.systemPromptArg) {
+            cmdArgs = [
+              config.command,
+              ...streamArgs,
+              config.systemPromptArg,
+              systemPrompt,
+              userPrompt,
+            ];
+          } else {
+            const fullPrompt = buildPrompt(systemPrompt, ctx.input, format);
+            cmdArgs = config.useStdin
+              ? [config.command, ...streamArgs]
+              : [config.command, ...streamArgs, fullPrompt];
+          }
+
+          if (ctx.verbose && !ctx.quiet) {
+            log.plain(
+              `🔧 CLI (streaming): ${cmdArgs.slice(0, -1).join(' ')} <prompt ${userPrompt.length} chars>`
+            );
+          }
+
+          // Show thinking unless in quiet mode, show raw JSON in verbose mode
+          const output = await streamClaudeCli(cmdArgs, config.env || {}, config.timeout || 60, {
+            showThinking: !ctx.quiet,
+            verbose: ctx.verbose ?? false,
+          });
+
+          return createResult(ctx, true, output, undefined, Date.now() - start, userPrompt);
+        }
+
+        // Non-streaming mode (for other CLI executors)
         let cmdArgs: string[];
         if (config.systemPromptArg) {
           cmdArgs = [
             config.command,
             ...finalArgs,
             config.systemPromptArg,
-            ctx.systemPrompt,
+            systemPrompt,
             userPrompt,
           ];
         } else {
-          const fullPrompt = buildPrompt(ctx.systemPrompt, ctx.input, format);
+          const fullPrompt = buildPrompt(systemPrompt, ctx.input, format);
           cmdArgs = config.useStdin
             ? [config.command, ...finalArgs]
             : [config.command, ...finalArgs, fullPrompt];
@@ -334,6 +522,7 @@ const claudeCliExecutor = createCLIExecutor({
   model: CLAUDE_CLI_DEFAULTS.model,
   useStdin: false,
   systemPromptArg: '--system-prompt',
+  // Suffix loaded from src/defaults/prompts/claude-cli-suffix.md
 });
 
 const testCliExecutor = createCLIExecutor({

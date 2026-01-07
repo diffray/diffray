@@ -2,7 +2,7 @@
  * Parse issues from agent output (JSON only)
  */
 
-import type { Issue, IssueSeverity } from './types';
+import type { Issue, IssueSeverity, IssueCategory } from './types';
 
 /**
  * Raw issue item from JSON parsing
@@ -13,6 +13,7 @@ interface RawIssueItem {
   lineEnd?: number;
   line?: number;
   severity?: string;
+  category?: string;
   shortDescription?: string;
   short?: string;
   message?: string;
@@ -30,7 +31,8 @@ function parseIssueItem(item: RawIssueItem, agent?: string): Issue {
     file: item.file || '',
     lineStart: item.lineStart || item.line || 0,
     lineEnd: item.lineEnd || item.lineStart || item.line || 0,
-    severity: (item.severity || 'info') as IssueSeverity,
+    severity: (item.severity || 'medium') as IssueSeverity,
+    category: (item.category || 'quality') as IssueCategory,
     shortDescription: item.shortDescription || item.short || item.message || '',
     fullDescription: item.fullDescription || item.description || item.shortDescription || '',
     suggestion: item.suggestion,

@@ -2,7 +2,7 @@
  * Format issues for display
  */
 
-import type { Issue, IssueSeverity } from './types';
+import type { Issue, IssueSeverity, IssueCategory } from './types';
 
 const colors = {
   reset: '\x1b[0m',
@@ -21,13 +21,13 @@ const colors = {
  */
 function getSeverityColor(severity: IssueSeverity): string {
   switch (severity) {
-    case 'error':
+    case 'critical':
       return colors.red;
-    case 'warning':
+    case 'high':
       return colors.yellow;
-    case 'info':
+    case 'medium':
       return colors.blue;
-    case 'suggestion':
+    case 'low':
       return colors.cyan;
   }
 }
@@ -37,14 +37,34 @@ function getSeverityColor(severity: IssueSeverity): string {
  */
 function getSeverityIcon(severity: IssueSeverity): string {
   switch (severity) {
-    case 'error':
+    case 'critical':
       return '✗';
-    case 'warning':
-      return '!';
-    case 'info':
+    case 'high':
+      return '⚠';
+    case 'medium':
       return '○';
-    case 'suggestion':
+    case 'low':
       return '◇';
+  }
+}
+
+/**
+ * Get icon for category
+ */
+function getCategoryIcon(category: IssueCategory): string {
+  switch (category) {
+    case 'security':
+      return '🔒';
+    case 'performance':
+      return '⚡';
+    case 'bug':
+      return '🐛';
+    case 'quality':
+      return '✨';
+    case 'style':
+      return '🎨';
+    case 'docs':
+      return '📝';
   }
 }
 
@@ -53,13 +73,13 @@ function getSeverityIcon(severity: IssueSeverity): string {
  */
 function getSeverityPriority(severity: IssueSeverity): number {
   switch (severity) {
-    case 'error':
+    case 'critical':
       return 0;
-    case 'warning':
+    case 'high':
       return 1;
-    case 'info':
+    case 'medium':
       return 2;
-    case 'suggestion':
+    case 'low':
       return 3;
   }
 }
@@ -81,6 +101,7 @@ export function sortIssuesBySeverity(issues: Issue[]): Issue[] {
 export function formatIssue(issue: Issue, compact = false): string {
   const color = getSeverityColor(issue.severity);
   const icon = getSeverityIcon(issue.severity);
+  const categoryIcon = getCategoryIcon(issue.category);
   const output: string[] = [];
 
   if (compact) {
@@ -91,7 +112,9 @@ export function formatIssue(issue: Issue, compact = false): string {
   } else {
     // Full format with all details
     output.push('');
-    output.push(`${icon} ${color}${colors.bold}${issue.severity.toUpperCase()}${colors.reset}`);
+    output.push(
+      `${icon} ${color}${colors.bold}${issue.severity.toUpperCase()}${colors.reset} ${categoryIcon} ${colors.dim}${issue.category}${colors.reset}`
+    );
     output.push(
       `${colors.bold}${issue.file}${colors.reset}:${colors.cyan}${issue.lineStart}${issue.lineEnd !== issue.lineStart ? `-${issue.lineEnd}` : ''}${colors.reset}`
     );
@@ -196,10 +219,10 @@ export interface JSONOutput {
   totalDuration: number;
   stats: {
     totalIssues: number;
-    errors: number;
-    warnings: number;
-    info: number;
-    suggestions: number;
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
     filesAnalyzed: number;
     agentsExecuted: number;
     agentsSucceeded: number;
@@ -221,10 +244,10 @@ export function formatAsJSON(
   agentsSucceeded: number,
   filesAnalyzed: number
 ): string {
-  const errorCount = issues.filter((i) => i.severity === 'error').length;
-  const warningCount = issues.filter((i) => i.severity === 'warning').length;
-  const infoCount = issues.filter((i) => i.severity === 'info').length;
-  const suggestionCount = issues.filter((i) => i.severity === 'suggestion').length;
+  const criticalCount = issues.filter((i) => i.severity === 'critical').length;
+  const highCount = issues.filter((i) => i.severity === 'high').length;
+  const mediumCount = issues.filter((i) => i.severity === 'medium').length;
+  const lowCount = issues.filter((i) => i.severity === 'low').length;
 
   // Sort issues by severity
   const sortedIssues = sortIssuesBySeverity(issues);
@@ -242,10 +265,10 @@ export function formatAsJSON(
     totalDuration,
     stats: {
       totalIssues: issues.length,
-      errors: errorCount,
-      warnings: warningCount,
-      info: infoCount,
-      suggestions: suggestionCount,
+      critical: criticalCount,
+      high: highCount,
+      medium: mediumCount,
+      low: lowCount,
       filesAnalyzed,
       agentsExecuted,
       agentsSucceeded,

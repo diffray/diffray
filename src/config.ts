@@ -13,6 +13,12 @@ export const ConfigSchema = z.object({
       format: z.enum(['terminal', 'markdown', 'json']).default('terminal'),
     })
     .default({}),
+  validation: z
+    .object({
+      executor: z.string().optional(), // Executor name (e.g., 'cerebras-api', 'claude-cli')
+      model: z.string().optional(), // Model override (e.g., 'haiku', 'llama-3.3-70b')
+    })
+    .default({}),
   executors: z.array(z.any()).default([]),
   agents: z.array(z.any()).default([]),
   rules: z.array(z.any()).default([]),

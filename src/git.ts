@@ -29,6 +29,85 @@ async function runGit(args: string[], cwd: string = process.cwd()): Promise<stri
 }
 
 /**
+ * Get current branch name
+ */
+export async function getCurrentBranch(): Promise<string | null> {
+  try {
+    const result = await runGit(['rev-parse', '--abbrev-ref', 'HEAD']);
+    const branch = result.trim();
+    return branch === 'HEAD' ? null : branch; // detached HEAD returns null
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get current HEAD commit SHA
+ */
+export async function getCurrentHeadSha(): Promise<string> {
+  const result = await runGit(['rev-parse', 'HEAD']);
+  return result.trim();
+}
+
+/**
+ * Get commit SHA for a ref (branch, tag, or commit)
+ */
+export async function getRefSha(ref: string): Promise<string> {
+  const result = await runGit(['rev-parse', ref]);
+  return result.trim();
+}
+
+/**
+ * Checkout to a specific ref
+ */
+export async function checkoutRef(ref: string): Promise<void> {
+  await runGit(['checkout', ref]);
+  clearStatusCache(); // Clear cache after checkout
+}
+
+/**
+ * Ensure working directory is at the specified head ref.
+ * Returns the original ref/branch if checkout was needed (for restore later).
+ */
+export async function ensureAtHead(
+  headRef: string
+): Promise<{ checkoutNeeded: boolean; originalRef: string | null }> {
+  const currentSha = await getCurrentHeadSha();
+  const targetSha = await getRefSha(headRef);
+
+  if (currentSha === targetSha) {
+    return { checkoutNeeded: false, originalRef: null };
+  }
+
+  // Save current position (branch name or SHA if detached)
+  const currentBranch = await getCurrentBranch();
+  const originalRef = currentBranch || currentSha;
+
+  // Checkout to target
+  await checkoutRef(headRef);
+
+  return { checkoutNeeded: true, originalRef };
+}
+
+/**
+ * Check if there are uncommitted changes that would block checkout
+ * (ignores untracked files - only checks modified/staged)
+ */
+export async function hasUncommittedChanges(): Promise<boolean> {
+  try {
+    // Use --porcelain and filter out untracked files (lines starting with ??)
+    const result = await runGit(['status', '--porcelain']);
+    const lines = result
+      .trim()
+      .split('\n')
+      .filter((line) => line && !line.startsWith('??'));
+    return lines.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Status matrix row type: [filepath, HEAD, WORKDIR, STAGE]
  */
 type StatusRow = [string, number, number, number];

@@ -80,14 +80,14 @@ diffray --verbose
 # JSON output (machine-readable)
 diffray --json
 
-# Filter by severity (show only errors)
-diffray --severity=error
+# Filter by severity (show only critical)
+diffray --severity=critical
 
-# Filter by multiple severities (errors and warnings)
-diffray --severity=error,warning
+# Filter by multiple severities (critical and high)
+diffray --severity=critical,high
 
 # Combine options
-diffray --json --severity=error
+diffray --json --severity=critical
 
 # Output includes:
 #    ~ README.md: +141 -5
