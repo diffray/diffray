@@ -40,12 +40,13 @@ function getStatusIcon(status: string): string {
 async function runReview(args: {
   verbose?: boolean;
   json?: boolean;
+  stream?: boolean;
   severity?: string;
   base?: string;
   head?: string;
   skipValidation?: boolean;
 }) {
-  const { verbose = false, json = false, severity, base, head, skipValidation = false } = args;
+  const { verbose = false, json = false, stream = false, severity, base, head, skipValidation = false } = args;
   const severityFilter = severity ? severity.split(',').map((s: string) => s.trim()) : undefined;
 
   if (!json) {
@@ -191,7 +192,8 @@ async function runReview(args: {
     verbose,
     json,
     config.concurrency,
-    skipValidation
+    skipValidation,
+    stream
   );
 
   const issuesFromResults = result.context.results.flatMap((r) => r.issues);
@@ -278,9 +280,13 @@ const reviewCmd = defineCommand({
     description: 'Run code review on current changes',
   },
   args: {
+    stream: {
+      type: 'boolean',
+      description: 'Show streaming output (thinking, tools, preliminary issues)',
+    },
     verbose: {
       type: 'boolean',
-      description: 'Show detailed output',
+      description: 'Show raw JSON stream',
     },
     json: {
       type: 'boolean',

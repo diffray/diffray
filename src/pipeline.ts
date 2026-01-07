@@ -92,7 +92,8 @@ export class Pipeline {
     verbose = false,
     quiet = false,
     concurrency = 3,
-    skipValidation = false
+    skipValidation = false,
+    stream = false
   ): Promise<PipelineResult> {
     const startTime = Date.now();
 
@@ -107,6 +108,7 @@ export class Pipeline {
       },
       verbose,
       quiet,
+      stream,
       concurrency,
       skipValidation,
     };

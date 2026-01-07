@@ -207,6 +207,7 @@ export function createExecuteAgentsStage(): Stage {
                       systemPrompt,
                       verbose: context.verbose,
                       quiet: context.quiet,
+                      stream: context.stream,
                     };
 
                     // Execute batch

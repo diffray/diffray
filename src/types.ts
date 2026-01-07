@@ -126,8 +126,9 @@ export interface ExecutionContext {
   executor: AgentExecutor;
   input: string; // Input data (diffs)
   systemPrompt: string; // System prompt from Agent
-  verbose?: boolean; // Verbose mode flag
+  verbose?: boolean; // Verbose mode flag (raw JSON)
   quiet?: boolean; // Suppress output (for JSON mode)
+  stream?: boolean; // Show streaming (thinking, preliminary issues)
 }
 
 /**
@@ -156,6 +157,7 @@ export interface PipelineContext {
   };
   verbose?: boolean;
   quiet?: boolean; // Suppress all logs (for JSON output mode)
+  stream?: boolean; // Show streaming output (thinking, preliminary issues)
   concurrency: number; // Max concurrent batch executions
   ruleRefs?: RuleRef[]; // Rule refs from load-rules stage (lightweight)
   rules?: Rule[]; // Full rules (deprecated, use ruleRefs)
