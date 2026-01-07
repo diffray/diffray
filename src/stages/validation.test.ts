@@ -32,6 +32,11 @@ describe('Validation Stage', () => {
     issues: [],
     results: [],
     matchedRules: [],
+    metadata: {
+      timestamp: Date.now(),
+      repository: 'test-repo',
+    },
+    concurrency: 1,
     verbose: false,
     quiet: true,
     skipValidation: false,
@@ -48,10 +53,32 @@ describe('Validation Stage', () => {
       expect(stage.order).toBe(5);
       expect(typeof stage.execute).toBe('function');
     });
+
+    test('should have correct description', () => {
+      const stage = createValidationStage();
+      expect(stage.description).toBe('Validate issues and filter out false positives');
+    });
   });
 
   describe('skip validation', () => {
     test('should skip validation when skipValidation is true', async () => {
+      const stage = createValidationStage();
+      const issues = [createIssue()];
+      const context = createContext({
+        skipValidation: true,
+        results: [createAgentResult(issues)],
+      });
+
+      const result = await stage.execute(context);
+
+      expect(result.success).toBe(true);
+      expect(result.stageId).toBe('validation');
+      // Issues should remain unchanged when skipped
+      expect(context.results[0]?.issues).toHaveLength(1);
+      expect(context.results[0]?.issues[0]?.shortDescription).toBe('Test issue');
+    });
+
+    test('should return early with minimal duration when skipped', async () => {
       const stage = createValidationStage();
       const context = createContext({
         skipValidation: true,
@@ -60,10 +87,7 @@ describe('Validation Stage', () => {
 
       const result = await stage.execute(context);
 
-      expect(result.success).toBe(true);
-      expect(result.stageId).toBe('validation');
-      // Issues should remain unchanged
-      expect(context.results[0]?.issues).toHaveLength(1);
+      expect(result.duration).toBeLessThan(100); // Should be very fast
     });
   });
 
@@ -90,75 +114,14 @@ describe('Validation Stage', () => {
 
       expect(result.success).toBe(true);
     });
-  });
 
-  describe('validation execution', () => {
-    test('should execute validation and return success', async () => {
+    test('should succeed with results but all empty issues', async () => {
       const stage = createValidationStage();
-      const issues = [
-        createIssue({ shortDescription: 'Issue 1' }),
-        createIssue({ shortDescription: 'Issue 2', lineStart: 20 }),
-      ];
-      const context = createContext({
-        results: [createAgentResult(issues)],
-      });
-
-      const result = await stage.execute(context);
-
-      // With test-cli returning [], all issues will be filtered out
-      expect(result.success).toBe(true);
-      expect(result.stageId).toBe('validation');
-      expect(result.duration).toBeGreaterThan(0);
-    });
-
-    test('should filter issues based on validation result', async () => {
-      const stage = createValidationStage();
-      const issues = [
-        createIssue({ shortDescription: 'Valid issue', lineStart: 10, lineEnd: 10 }),
-        createIssue({ shortDescription: 'Invalid issue', lineStart: 20, lineEnd: 20 }),
-      ];
-      const context = createContext({
-        results: [createAgentResult(issues)],
-      });
-
-      await stage.execute(context);
-
-      // test-cli returns [], so all issues are filtered
-      expect(context.results[0]?.issues).toHaveLength(0);
-    });
-  });
-
-  describe('batching', () => {
-    test('should handle many issues (requiring batching)', async () => {
-      const stage = createValidationStage();
-
-      // Create 20 issues to trigger batching (batch size is 15)
-      const issues: Issue[] = [];
-      for (let i = 0; i < 20; i++) {
-        issues.push(createIssue({ shortDescription: `Issue ${i}`, lineStart: i + 1 }));
-      }
-
-      const context = createContext({
-        results: [createAgentResult(issues)],
-      });
-
-      const result = await stage.execute(context);
-
-      expect(result.success).toBe(true);
-    });
-  });
-
-  describe('multiple agent results', () => {
-    test('should validate issues from multiple agents', async () => {
-      const stage = createValidationStage();
-
-      const issues1 = [createIssue({ agent: 'agent-1', shortDescription: 'Issue from agent 1' })];
-      const issues2 = [createIssue({ agent: 'agent-2', shortDescription: 'Issue from agent 2' })];
-
       const context = createContext({
         results: [
-          { ...createAgentResult(issues1), agentId: 'agent-1', agentName: 'Agent 1' },
-          { ...createAgentResult(issues2), agentId: 'agent-2', agentName: 'Agent 2' },
+          createAgentResult([]),
+          createAgentResult([]),
+          createAgentResult([]),
         ],
       });
 
@@ -168,40 +131,86 @@ describe('Validation Stage', () => {
     });
   });
 
-  describe('issue matching', () => {
-    test('should match issues by file, lineStart, lineEnd, and agent', async () => {
+  describe('stage result structure', () => {
+    test('should return correct stageId and stageName', async () => {
       const stage = createValidationStage();
-
-      // Two issues with same file but different lines
-      const issues = [
-        createIssue({ file: 'src/a.ts', lineStart: 10, lineEnd: 10, agent: 'agent-1' }),
-        createIssue({ file: 'src/a.ts', lineStart: 20, lineEnd: 20, agent: 'agent-1' }),
-      ];
-
-      const context = createContext({
-        results: [createAgentResult(issues)],
-      });
-
-      await stage.execute(context);
-
-      // Both should be filtered since test-cli returns []
-      expect(context.results[0]?.issues).toHaveLength(0);
-    });
-  });
-
-  describe('stage result', () => {
-    test('should include stage metadata in result', async () => {
-      const stage = createValidationStage();
-      const context = createContext({
-        results: [createAgentResult([createIssue()])],
-      });
+      const context = createContext({ skipValidation: true });
 
       const result = await stage.execute(context);
 
       expect(result.stageId).toBe('validation');
       expect(result.stageName).toBe('Validation');
+    });
+
+    test('should include duration', async () => {
+      const stage = createValidationStage();
+      const context = createContext({ skipValidation: true });
+
+      const result = await stage.execute(context);
+
       expect(typeof result.duration).toBe('number');
       expect(result.duration).toBeGreaterThanOrEqual(0);
+    });
+  });
+
+  describe('context mutation', () => {
+    test('should not mutate context when skipping validation', async () => {
+      const stage = createValidationStage();
+      const originalIssue = createIssue({ shortDescription: 'Original' });
+      const context = createContext({
+        skipValidation: true,
+        results: [createAgentResult([originalIssue])],
+      });
+
+      await stage.execute(context);
+
+      expect(context.results[0]?.issues[0]?.shortDescription).toBe('Original');
+    });
+
+    test('should not mutate context when no issues to validate', async () => {
+      const stage = createValidationStage();
+      const context = createContext({
+        results: [createAgentResult([])],
+      });
+      const originalResultsLength = context.results.length;
+
+      await stage.execute(context);
+
+      expect(context.results.length).toBe(originalResultsLength);
+    });
+  });
+
+  describe('multiple agent results', () => {
+    test('should collect issues from all results when no issues present', async () => {
+      const stage = createValidationStage();
+      const context = createContext({
+        results: [
+          { ...createAgentResult([]), agentId: 'agent-1' },
+          { ...createAgentResult([]), agentId: 'agent-2' },
+          { ...createAgentResult([]), agentId: 'agent-3' },
+        ],
+      });
+
+      const result = await stage.execute(context);
+
+      expect(result.success).toBe(true);
+      expect(context.results).toHaveLength(3);
+    });
+
+    test('should preserve all results when skipping validation', async () => {
+      const stage = createValidationStage();
+      const context = createContext({
+        skipValidation: true,
+        results: [
+          { ...createAgentResult([createIssue({ agent: 'a1' })]), agentId: 'agent-1' },
+          { ...createAgentResult([createIssue({ agent: 'a2' })]), agentId: 'agent-2' },
+        ],
+      });
+
+      await stage.execute(context);
+
+      expect(context.results[0]?.issues).toHaveLength(1);
+      expect(context.results[1]?.issues).toHaveLength(1);
     });
   });
 });

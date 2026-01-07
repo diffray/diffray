@@ -117,18 +117,6 @@ async function loadOutputFormat(): Promise<string> {
   });
 }
 
-async function loadClaudeCliSuffix(): Promise<string> {
-  return getCached(CACHE_KEYS.CLAUDE_CLI_SUFFIX, async () => {
-    try {
-      const __filename = fileURLToPath(import.meta.url);
-      const __dirname = dirname(__filename);
-      const suffixPath = join(__dirname, 'defaults', 'prompts', 'claude-cli-suffix.md');
-      return await Bun.file(suffixPath).text();
-    } catch {
-      return '';
-    }
-  });
-}
 
 function buildPrompt(systemPrompt: string, input: string, format: string): string {
   return `${systemPrompt}\n\n# Input:\n${input}\n\n${format}`;
@@ -247,7 +235,6 @@ interface CLIConfig {
   useStdin?: boolean;
   model?: string;
   systemPromptArg?: string;
-  systemPromptSuffix?: string;
 }
 
 interface StreamOptions {
@@ -405,14 +392,7 @@ function createCLIExecutor(config: CLIConfig): Executor {
       try {
         const format = await loadOutputFormat();
         const userPrompt = buildUserPrompt(ctx.input, format);
-
-        // Build system prompt with optional suffix
-        // For claude-cli, load suffix from file if not provided inline
-        let suffix = config.systemPromptSuffix;
-        if (config.name === 'claude-cli' && !suffix) {
-          suffix = await loadClaudeCliSuffix();
-        }
-        const systemPrompt = suffix ? `${ctx.systemPrompt}\n\n${suffix}` : ctx.systemPrompt;
+        const systemPrompt = ctx.systemPrompt;
 
         // Build args, injecting model if specified
         let finalArgs = config.args || [];
@@ -635,7 +615,6 @@ const claudeCliExecutor = createCLIExecutor({
   model: CLAUDE_CLI_DEFAULTS.model,
   useStdin: false,
   systemPromptArg: '--system-prompt',
-  // Suffix loaded from src/defaults/prompts/claude-cli-suffix.md
 });
 
 const testCliExecutor = createCLIExecutor({

@@ -10,6 +10,7 @@ import { parseIssues } from '../issue-parser';
 import { batchDiffs, formatBatchInfo } from '../token-utils';
 import { getTokenCounterName, estimateTokens } from '../token-counter';
 import { createLimiter } from '../concurrency';
+import { loadInstructions } from '../config';
 
 export function createExecuteAgentsStage(): Stage {
   return {
@@ -23,6 +24,9 @@ export function createExecuteAgentsStage(): Stage {
 
       // Create concurrency limiter from context
       const limit = createLimiter(context.concurrency);
+
+      // Load global instructions from ~/.diffray/instructions.md
+      const instructions = await loadInstructions();
 
       // Show token counter info in verbose mode
       if (context.verbose && !context.quiet) {
@@ -70,14 +74,17 @@ export function createExecuteAgentsStage(): Stage {
         }
         const agentDiffs = context.diffs.filter((diff) => matchedFileSet.has(diff.file));
 
-        // Build system prompt: Agent.systemPrompt + all Rule.prompts
+        // Build system prompt: Agent.systemPrompt + Rule.prompts + global instructions
         let systemPrompt = agent.systemPrompt;
         const rulePrompts = matchedRules
           .map((mr) => mr.rule.prompt)
           .filter(Boolean)
           .join('\n\n');
         if (rulePrompts) {
-          systemPrompt = `${agent.systemPrompt}\n\n${rulePrompts}`;
+          systemPrompt = `${systemPrompt}\n\n${rulePrompts}`;
+        }
+        if (instructions) {
+          systemPrompt = `${systemPrompt}\n\n${instructions}`;
         }
 
         // Calculate batches

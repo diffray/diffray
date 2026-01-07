@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { join } from 'path';
 import { homedir } from 'os';
 import type { Agent, RuleRef } from './types';
+import { getCached, setCache, invalidateCache, CACHE_KEYS } from './cache';
 
 export const ConfigSchema = z.object({
   excludePatterns: z.array(z.string()).default(['*.lock', '*.min.js', 'dist/*', 'node_modules/**']),
@@ -33,45 +34,37 @@ const CONFIG_DIR = join(homedir(), '.diffray');
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
 const INSTRUCTIONS_FILE = join(CONFIG_DIR, 'instructions.md');
 
-let configCache: Config | null = null;
-let instructionsCache: string | null = null;
-
 export function getDefaultConfig(): Config {
   return ConfigSchema.parse({});
 }
 
 export async function loadConfig(): Promise<Config> {
-  if (configCache) {
-    return configCache;
-  }
+  return getCached(CACHE_KEYS.CONFIG, async () => {
+    try {
+      const file = Bun.file(CONFIG_FILE);
+      const exists = await file.exists();
 
-  try {
-    const file = Bun.file(CONFIG_FILE);
-    const exists = await file.exists();
+      if (!exists) {
+        const defaultConfig = getDefaultConfig();
+        await saveConfig(defaultConfig);
+        return defaultConfig;
+      }
 
-    if (!exists) {
-      const defaultConfig = getDefaultConfig();
-      await saveConfig(defaultConfig);
-      return defaultConfig;
+      const content = await file.text();
+      const json = JSON.parse(content);
+      return ConfigSchema.parse(json);
+    } catch (error) {
+      console.warn(`Warning: Failed to load config, using defaults. Error: ${error}`);
+      return getDefaultConfig();
     }
-
-    const content = await file.text();
-    const json = JSON.parse(content);
-    const config = ConfigSchema.parse(json);
-
-    configCache = config;
-    return config;
-  } catch (error) {
-    console.warn(`Warning: Failed to load config, using defaults. Error: ${error}`);
-    return getDefaultConfig();
-  }
+  });
 }
 
 export async function saveConfig(config: Config): Promise<void> {
   try {
     await Bun.$`mkdir -p ${CONFIG_DIR}`.quiet();
     await Bun.write(CONFIG_FILE, JSON.stringify(config, null, 2));
-    configCache = config;
+    setCache(CACHE_KEYS.CONFIG, config);
   } catch (error) {
     throw new Error(`Failed to save config: ${error}`);
   }
@@ -111,8 +104,8 @@ export async function configExists(): Promise<boolean> {
 }
 
 export function invalidateConfigCache(): void {
-  configCache = null;
-  instructionsCache = null;
+  invalidateCache(CACHE_KEYS.CONFIG);
+  invalidateCache(CACHE_KEYS.INSTRUCTIONS);
 }
 
 /**
@@ -120,25 +113,20 @@ export function invalidateConfigCache(): void {
  * Returns empty string if file doesn't exist
  */
 export async function loadInstructions(): Promise<string> {
-  if (instructionsCache !== null) {
-    return instructionsCache;
-  }
+  return getCached(CACHE_KEYS.INSTRUCTIONS, async () => {
+    try {
+      const file = Bun.file(INSTRUCTIONS_FILE);
+      const exists = await file.exists();
 
-  try {
-    const file = Bun.file(INSTRUCTIONS_FILE);
-    const exists = await file.exists();
+      if (!exists) {
+        return '';
+      }
 
-    if (!exists) {
-      instructionsCache = '';
+      return await file.text();
+    } catch {
       return '';
     }
-
-    instructionsCache = await file.text();
-    return instructionsCache;
-  } catch {
-    instructionsCache = '';
-    return '';
-  }
+  });
 }
 
 export function getInstructionsPath(): string {

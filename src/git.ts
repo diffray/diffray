@@ -1,12 +1,24 @@
 import * as Diff from 'diff';
 import type { GitDiff } from './types.js';
+import { getCached, invalidateCache, CACHE_KEYS } from './cache';
+
+const GIT_TIMEOUT_MS = 30000; // 30 seconds
 
 /**
- * Run native git command and return stdout
+ * Run native git command and return stdout (with timeout)
  */
 async function runGit(args: string[], cwd: string = process.cwd()): Promise<string> {
   const proc = Bun.spawn(['git', ...args], { cwd, stdout: 'pipe', stderr: 'pipe' });
-  const exitCode = await proc.exited;
+
+  // Race between process completion and timeout
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => {
+      proc.kill();
+      reject(new Error(`git ${args[0]} timeout after ${GIT_TIMEOUT_MS / 1000}s`));
+    }, GIT_TIMEOUT_MS);
+  });
+
+  const exitCode = await Promise.race([proc.exited, timeoutPromise]);
 
   if (exitCode === 0) {
     return await new Response(proc.stdout).text();
@@ -105,11 +117,6 @@ interface StatusEntry {
 }
 
 /**
- * Cached status entries to avoid repeated git calls
- */
-let cachedStatus: StatusEntry[] | null = null;
-
-/**
  * Parse git status --porcelain output
  */
 function parseStatus(output: string): StatusEntry[] {
@@ -125,21 +132,20 @@ function parseStatus(output: string): StatusEntry[] {
 }
 
 /**
- * Get status entries (cached)
+ * Get status entries (using unified cache)
  */
 async function getStatus(): Promise<StatusEntry[]> {
-  if (cachedStatus === null) {
+  return getCached(CACHE_KEYS.GIT_STATUS, async () => {
     const output = await runGit(['status', '--porcelain']);
-    cachedStatus = parseStatus(output);
-  }
-  return cachedStatus;
+    return parseStatus(output);
+  });
 }
 
 /**
  * Clear cached status (call when git state changes)
  */
 export function clearStatusCache(): void {
-  cachedStatus = null;
+  invalidateCache(CACHE_KEYS.GIT_STATUS);
 }
 
 /**
