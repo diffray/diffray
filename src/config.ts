@@ -31,8 +31,10 @@ export type Config = z.infer<typeof ConfigSchema>;
 
 const CONFIG_DIR = join(homedir(), '.diffray');
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
+const INSTRUCTIONS_FILE = join(CONFIG_DIR, 'instructions.md');
 
 let configCache: Config | null = null;
+let instructionsCache: string | null = null;
 
 export function getDefaultConfig(): Config {
   return ConfigSchema.parse({});
@@ -110,6 +112,37 @@ export async function configExists(): Promise<boolean> {
 
 export function invalidateConfigCache(): void {
   configCache = null;
+  instructionsCache = null;
+}
+
+/**
+ * Load global instructions from ~/.diffray/instructions.md
+ * Returns empty string if file doesn't exist
+ */
+export async function loadInstructions(): Promise<string> {
+  if (instructionsCache !== null) {
+    return instructionsCache;
+  }
+
+  try {
+    const file = Bun.file(INSTRUCTIONS_FILE);
+    const exists = await file.exists();
+
+    if (!exists) {
+      instructionsCache = '';
+      return '';
+    }
+
+    instructionsCache = await file.text();
+    return instructionsCache;
+  } catch {
+    instructionsCache = '';
+    return '';
+  }
+}
+
+export function getInstructionsPath(): string {
+  return INSTRUCTIONS_FILE;
 }
 
 // Agents and rules are cached from MD files for performance

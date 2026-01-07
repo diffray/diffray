@@ -11,9 +11,8 @@ import type {
   ExecutionContext,
   Agent,
   AgentExecutor,
-  IssueSeverity,
-  IssueCategory,
 } from '../types';
+import { parseIssues } from '../issue-parser';
 import { log, Spinner } from '../logger';
 import { executorFactory } from '../executors';
 import { loadConfig } from '../config';
@@ -53,42 +52,6 @@ async function loadValidationPrompt(): Promise<string> {
   }
 }
 
-/**
- * Parse validated issues from agent output
- * Expects a JSON array of issues
- */
-function parseValidatedIssues(output: string): Issue[] {
-  try {
-    // Extract JSON from output (in case there's extra text)
-    const jsonMatch = output.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) {
-      return [];
-    }
-
-    const data = JSON.parse(jsonMatch[0]);
-
-    if (!Array.isArray(data)) {
-      return [];
-    }
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (data as any[])
-      .map((item) => ({
-        file: item.file || '',
-        lineStart: item.lineStart || item.line || 0,
-        lineEnd: item.lineEnd || item.lineStart || item.line || 0,
-        severity: (item.severity || 'medium') as IssueSeverity,
-        category: (item.category || 'quality') as IssueCategory,
-        shortDescription: item.shortDescription || item.short || item.message || '',
-        fullDescription: item.fullDescription || item.description || item.shortDescription || '',
-        suggestion: item.suggestion,
-        agent: item.agent || 'unknown',
-      }))
-      .filter((issue: Issue) => issue.file && issue.shortDescription && issue.lineStart > 0);
-  } catch {
-    return [];
-  }
-}
 
 /**
  * Create validation stage
@@ -274,8 +237,8 @@ export function createValidationStage(): Stage {
             };
           }
 
-          // Parse validated issues from this batch
-          const batchValidatedIssues = parseValidatedIssues(result.output);
+          // Parse validated issues from this batch (no agent override, preserve original)
+          const batchValidatedIssues = parseIssues(result.output);
           allValidatedIssues.push(...batchValidatedIssues);
         }
 
