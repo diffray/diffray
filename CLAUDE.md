@@ -56,13 +56,14 @@ Stages (sequential):
 
 **Claude CLI Executor**:
 - Uses `claude -p --output-format stream-json --verbose` for streaming
-- Shows reasoning with `💭` prefix (unless `--quiet`)
-- In `--verbose` mode shows additional JSON:
-  - `📋` - System init (tools, session, model)
-  - `🔧` - Tool use messages
-  - `📊` - Result metadata (cost, usage, duration)
+- Default: quiet streaming (no output during execution)
+- With `--verbose` shows:
+  - `📋` - Session info (model, tools count)
+  - `🔧` - Tool use (Read, Grep, etc.)
+  - `💭` - Thinking (truncated to 200 chars)
+  - `📊` - Cost and duration
+  - `⚠ Preliminary issues` - Formatted issues before validation
 - Default model: `sonnet`, timeout: 120s
-- Can use Read/Grep tools to gather context before answering
 
 **Rules** (`src/defaults/rules/*.md`):
 - Map glob patterns to agents
@@ -105,9 +106,8 @@ interface Issue {
   - `--head <ref>` - Head commit/branch (default: `HEAD`)
     - When `--base` specified with no uncommitted changes, temporarily checks out `--head` ref for CLI tools, then restores original branch
   - `--severity <list>` - Filter by severity (comma-separated: critical,high,medium,low)
-  - `--json` - Output results in JSON format (quiet mode, no streaming)
-  - `--verbose` - Show raw JSON stream (📋 system, 🔧 tools, 📊 results)
-  - `--quiet` - Hide streaming output (💭 reasoning)
+  - `--json` - Output results in JSON format
+  - `--verbose` - Show streaming (💭 thinking, 🔧 tools, ⚠ preliminary issues)
   - `--skip-validation` - Skip validation stage
   - Without `--base`: reviews uncommitted changes, or last commit if clean
 - `diffray agents sync` - Reload agents from MD files
