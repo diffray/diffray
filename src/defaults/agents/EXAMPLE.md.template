@@ -6,7 +6,7 @@
 ID: custom-agent
 Order: 10
 Enabled: false
-Executor: default-cli
+Executor: test-cli
 ---
 
 ## Description

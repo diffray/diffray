@@ -38,7 +38,14 @@ The project is a pipeline-based code review system:
 - Schema validation with Zod (`src/config.ts`)
 
 ## CLI Subcommands
-- `diffray run` - Execute code review pipeline
+- `diffray review` - Execute code review pipeline
+  - `--base <ref>` - Base commit/branch to compare from (e.g., `main`, `HEAD~3`)
+  - `--head <ref>` - Head commit/branch to compare to (default: `HEAD`)
+  - `--severity <list>` - Filter by severity (comma-separated: error,warning,info,suggestion)
+  - `--json` - Output results in JSON format
+  - `--verbose` - Show detailed output
+  - `--skip-validation` - Skip validation stage (show all issues without LLM filtering)
+  - Without `--base`: reviews uncommitted changes, or last commit if working tree is clean
 - `diffray config` - Manage configuration
 - `diffray agents` - List/show/sync agents
 - `diffray executors` - Manage executors
@@ -56,5 +63,5 @@ The project is a pipeline-based code review system:
 - ES Modules with bundler moduleResolution
 - No `.js` extensions needed in imports (bundler mode)
 - Markdown-based configuration for agents and rules
-- Factory pattern for executors (`src/executors/factory.ts`)
+- Simplified executor system (`src/executors.ts`)
 - Registry pattern for agents (`src/agents/registry.ts`)

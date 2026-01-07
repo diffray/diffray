@@ -5,9 +5,31 @@
 import { loadExecutors } from '../executors.js';
 import { updateConfig } from '../config.js';
 import { log } from '../logger';
+import type { AgentExecutor } from '../types.js';
+
+// Helper to get model from executor (handles union type)
+function getModel(e: AgentExecutor): string | undefined {
+  return e.type === 'llm-api'
+    ? e.model
+    : e.type === 'cli'
+      ? (e as { model?: string }).model
+      : undefined;
+}
+
+function getTimeout(e: AgentExecutor): number | undefined {
+  return e.type === 'cli' ? e.timeout : undefined;
+}
+
+function getTemperature(e: AgentExecutor): number | undefined {
+  return e.type === 'llm-api' ? e.temperature : undefined;
+}
+
+function getMaxTokens(e: AgentExecutor): number | undefined {
+  return e.type === 'llm-api' ? e.maxTokens : undefined;
+}
 
 /**
- * List all Executors
+ * List all Executors in table format
  */
 export async function listExecutors(): Promise<void> {
   const executors = await loadExecutors();
@@ -20,22 +42,59 @@ export async function listExecutors(): Promise<void> {
     return;
   }
 
+  // Calculate column widths
+  const cols = {
+    status: 1,
+    name: Math.max(8, ...executors.map((e) => e.name.length)),
+    model: Math.max(5, ...executors.map((e) => (getModel(e) || '-').length)),
+    timeout: 7,
+    temp: 4,
+    tokens: 6,
+  };
+
+  // Header
+  const header = [
+    ''.padEnd(cols.status),
+    'Executor'.padEnd(cols.name),
+    'Model'.padEnd(cols.model),
+    'Timeout'.padEnd(cols.timeout),
+    'Temp'.padEnd(cols.temp),
+    'Tokens'.padEnd(cols.tokens),
+  ].join('  ');
+
+  const separator = [
+    '-'.repeat(cols.status),
+    '-'.repeat(cols.name),
+    '-'.repeat(cols.model),
+    '-'.repeat(cols.timeout),
+    '-'.repeat(cols.temp),
+    '-'.repeat(cols.tokens),
+  ].join('  ');
+
+  log.plain(header);
+  log.plain(separator);
+
+  // Rows
   for (const executor of executors) {
     const status = executor.enabled ? '●' : '○';
-    log.plain(`${status} ${executor.name}`);
-    log.plain(`   ${executor.description}`);
-    log.plain(`   Type: ${executor.type}`);
+    const model = getModel(executor) || '-';
+    const timeout = getTimeout(executor) ? `${getTimeout(executor)}s` : '-';
+    const temp = getTemperature(executor) !== undefined ? String(getTemperature(executor)) : '-';
+    const tokens = getMaxTokens(executor) !== undefined ? String(getMaxTokens(executor)) : '-';
 
-    if (executor.type === 'cli') {
-      log.plain(`   Command: ${executor.command} ${executor.args?.join(' ') || ''}`);
-      log.plain(`   Timeout: ${executor.timeout || 60}s`);
-    } else if (executor.type === 'llm-api') {
-      log.plain(`   Provider: ${executor.provider}`);
-      log.plain(`   Model: ${executor.model}`);
-    }
+    const row = [
+      status.padEnd(cols.status),
+      executor.name.padEnd(cols.name),
+      model.padEnd(cols.model),
+      timeout.padEnd(cols.timeout),
+      temp.padEnd(cols.temp),
+      tokens.padEnd(cols.tokens),
+    ].join('  ');
 
-    log.newline();
+    log.plain(row);
   }
+
+  log.newline();
 }
 
 /**
@@ -60,12 +119,16 @@ export async function showExecutor(executorName: string): Promise<void> {
   if (executor.type === 'cli') {
     log.plain(`Command: ${executor.command}`);
     log.plain(`Args: ${executor.args?.join(' ') || '(none)'}`);
+    const cliModel = getModel(executor);
+    if (cliModel) {
+      log.plain(`Model: ${cliModel}`);
+    }
     log.plain(`Timeout: ${executor.timeout || 60}s`);
   } else if (executor.type === 'llm-api') {
     log.plain(`Provider: ${executor.provider}`);
     log.plain(`Model: ${executor.model}`);
-    log.plain(`Temperature: ${executor.temperature || 0.7}`);
-    log.plain(`Max Tokens: ${executor.maxTokens || 4096}`);
+    log.plain(`Temperature: ${executor.temperature ?? 0.7}`);
+    log.plain(`Max Tokens: ${executor.maxTokens ?? 4096}`);
   }
 
   if (executor.type === 'cli' && executor.env) {

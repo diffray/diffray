@@ -1,9 +1,12 @@
 ---
-id: "config-security"
-name: "Config Security"
-description: "Security scan for config files"
-patterns: ["**/*.json", "**/*.yaml", "**/*.yml", "**/*.toml"]
-agent: "security-scan"
+name: config-security
+description: Security scan for config files
+patterns:
+  - "**/*.json"
+  - "**/*.yaml"
+  - "**/*.yml"
+  - "**/*.toml"
+agent: security-scan
 ---
 
 Scan configuration files for security issues:

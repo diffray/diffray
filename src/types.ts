@@ -2,6 +2,11 @@
  * Core types for diffray
  */
 
+/**
+ * Source of configuration item (where it was loaded from)
+ */
+export type ConfigSource = 'defaults' | 'user' | 'project';
+
 export interface GitDiff {
   file: string;
   status: 'modified' | 'added' | 'deleted' | 'renamed';
@@ -27,8 +32,7 @@ export interface Issue {
   shortDescription: string;
   fullDescription: string;
   suggestion?: string;
-  agentId: string;
-  agentName: string;
+  agent: string;
 }
 
 /**
@@ -46,6 +50,9 @@ export interface Agent {
 
   // Which executor will execute this task
   executor: string;
+
+  // Where this agent was loaded from
+  source?: ConfigSource;
 }
 
 /**
@@ -142,7 +149,11 @@ export interface PipelineContext {
   verbose?: boolean;
   quiet?: boolean; // Suppress all logs (for JSON output mode)
   concurrency: number; // Max concurrent batch executions
+  ruleRefs?: RuleRef[]; // Rule refs from load-rules stage (lightweight)
+  rules?: Rule[]; // Full rules (deprecated, use ruleRefs)
+  agents?: Agent[]; // Loaded agents from load-rules stage
   matchedRules?: MatchedRule[]; // Matched rules from match-rules stage
+  skipValidation?: boolean; // Skip validation stage
 }
 
 export interface AgentResult {
@@ -190,15 +201,29 @@ export interface StageResult {
 }
 
 /**
- * Rule for matching agents to files
+ * Rule reference stored in config (lightweight)
+ * Full content (prompt) loaded lazily from path when needed
+ */
+export interface RuleRef {
+  name: string;
+  description: string;
+  path: string; // Absolute path to MD file
+  patterns: string[]; // Array of glob patterns for matching
+  agent: string; // Agent ID to use
+  source: ConfigSource; // Where this rule was loaded from
+}
+
+/**
+ * Full rule with content (loaded from RuleRef.path)
  */
 export interface Rule {
-  id: string;
   name: string;
   description: string;
   patterns: string[]; // Array of glob patterns
   agent: string;
   prompt: string; // Main prompt - what to check for
+  source?: ConfigSource; // Where this rule was loaded from
+  path?: string; // Path to source file
 }
 
 /**

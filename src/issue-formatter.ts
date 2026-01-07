@@ -49,6 +49,33 @@ function getSeverityIcon(severity: IssueSeverity): string {
 }
 
 /**
+ * Get severity priority for sorting
+ */
+function getSeverityPriority(severity: IssueSeverity): number {
+  switch (severity) {
+    case 'error':
+      return 0;
+    case 'warning':
+      return 1;
+    case 'info':
+      return 2;
+    case 'suggestion':
+      return 3;
+  }
+}
+
+/**
+ * Sort issues by severity priority
+ */
+export function sortIssuesBySeverity(issues: Issue[]): Issue[] {
+  return [...issues].sort((a, b) => {
+    const priorityA = getSeverityPriority(a.severity);
+    const priorityB = getSeverityPriority(b.severity);
+    return priorityA - priorityB;
+  });
+}
+
+/**
  * Format a single issue
  */
 export function formatIssue(issue: Issue, compact = false): string {
@@ -83,7 +110,7 @@ export function formatIssue(issue: Issue, compact = false): string {
     }
 
     output.push('');
-    output.push(`${colors.gray}From: ${issue.agentName}${colors.reset}`);
+    output.push(`${colors.gray}From: ${issue.agent}${colors.reset}`);
     output.push('');
     output.push(colors.gray + '─'.repeat(80) + colors.reset);
   }
@@ -96,7 +123,7 @@ export function formatIssue(issue: Issue, compact = false): string {
  */
 export function formatIssues(issues: Issue[], compact = false): string {
   if (issues.length === 0) {
-    return `${colors.green}✓ No issues found${colors.reset}`;
+    return `${colors.green}✓ No issues found 🎉${colors.reset}`;
   }
 
   const output: string[] = [];
@@ -134,7 +161,7 @@ export function groupIssuesByFile(issues: Issue[]): Map<string, Issue[]> {
  */
 export function formatIssuesByFile(issues: Issue[]): string {
   if (issues.length === 0) {
-    return `${colors.green}✓ No issues found${colors.reset}`;
+    return `${colors.green}✓ No issues found 🎉${colors.reset}`;
   }
 
   const grouped = groupIssuesByFile(issues);
@@ -152,7 +179,8 @@ export function formatIssuesByFile(issues: Issue[]): string {
     );
     output.push('');
 
-    for (const issue of fileIssues) {
+    const sortedFileIssues = sortIssuesBySeverity(fileIssues);
+    for (const issue of sortedFileIssues) {
       output.push(formatIssue(issue, false));
     }
   }
@@ -198,12 +226,15 @@ export function formatAsJSON(
   const infoCount = issues.filter((i) => i.severity === 'info').length;
   const suggestionCount = issues.filter((i) => i.severity === 'suggestion').length;
 
+  // Sort issues by severity
+  const sortedIssues = sortIssuesBySeverity(issues);
+
   // Group issues by file
-  const grouped = groupIssuesByFile(issues);
+  const grouped = groupIssuesByFile(sortedIssues);
   const filesList = Array.from(grouped.entries()).map(([file, fileIssues]) => ({
     file,
     issueCount: fileIssues.length,
-    issues: fileIssues,
+    issues: sortIssuesBySeverity(fileIssues),
   }));
 
   const output: JSONOutput = {
@@ -220,7 +251,7 @@ export function formatAsJSON(
       agentsSucceeded,
       agentsFailed: agentsExecuted - agentsSucceeded,
     },
-    issues,
+    issues: sortedIssues,
     files: filesList,
   };
 

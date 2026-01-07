@@ -103,7 +103,7 @@ diffray --json --severity=error
 diffray agents list
 
 # Show agent details
-diffray agents show code-review
+diffray agents show bug-hunter
 
 # Sync agents from MD files to cache
 diffray agents sync
@@ -127,11 +127,11 @@ After creating or modifying agents, run `diffray agents sync` to reload them.
 diffray executors list
 
 # Show executor details
-diffray executors show auggie-cli
+diffray executors show claude-cli
 
 # Enable/disable executors
-diffray executors enable claude-api
-diffray executors disable auggie-cli
+diffray executors enable cerebras-api
+diffray executors disable claude-cli
 ```
 
 ### Manage Rules
@@ -143,10 +143,10 @@ Rules allow you to run different agents on different file types using glob patte
 diffray rules list
 
 # Show rule details
-diffray rules show typescript-review
+diffray rules show code-bugs
 
 # Test rule matching against specific files
-diffray rules test typescript-review src/cli.ts src/agents.ts README.md
+diffray rules test code-bugs src/cli.ts src/agents.ts README.md
 # Output:
 # ✓ Matched 2 file(s):
 #   ● src/cli.ts
@@ -168,16 +168,16 @@ id: "my-rule"
 name: "My Custom Rule"
 description: "Description of what this rule does"
 patterns: ["**/*.ts", "**/*.tsx"]
-agent: "code-review"
+agent: "bug-hunter"
 ---
 
 Additional instructions for the agent when this rule matches.
 ```
 
 **Default Rules:**
-- `typescript-review`: Run code-review on `**/*.ts, **/*.tsx`
-- `typescript-security`: Run security-scan on `**/*.ts, **/*.tsx`
-- `config-security`: Run security-scan on config files `**/*.{json,yaml,yml,toml,env}`
+- `code-bugs`: Run bug-hunter on code files `**/*.{ts,tsx,js,jsx,py,go,rs,java,rb,php}`
+- `code-security`: Run security-scan on code files `**/*.{ts,tsx,js,jsx,py,go,rs,java,rb,php}`
+- `config-security`: Run security-scan on config files `**/*.{json,yaml,yml,toml}`
 
 ### Configuration
 
@@ -236,31 +236,42 @@ Executors define **how** to run Agents. diffray supports multiple executor types
 
 Executors are configured in `~/.diffray/config.json`.
 
-#### CLI Executor Example
+#### Executor Configuration
+
+Executors can be configured in `~/.diffray/config.json`:
 
 ```json
 {
-  "id": "claude-cli",
-  "name": "Claude CLI",
-  "description": "Execute via Claude Code CLI",
-  "type": "cli",
-  "command": "claude",
-  "args": ["--print", "--quiet"],
-  "timeout": 120,
-  "enabled": true
+  "executors": [
+    {
+      "name": "claude-cli",
+      "enabled": true,
+      "model": "opus",
+      "timeout": 180
+    },
+    {
+      "name": "cerebras-api",
+      "enabled": true,
+      "model": "llama-3.1-8b",
+      "temperature": 0.5,
+      "maxTokens": 4096
+    }
+  ]
 }
 ```
 
-#### CLI Executor Options
+#### Executor Options
 
-- `id` - Unique executor identifier
-- `name` - Display name
-- `description` - Description
-- `type` - Must be `"cli"`
-- `command` - Command to execute
-- `args` - Array of command arguments
-- `timeout` - Timeout in seconds (default: 60)
+**CLI Executors (claude-cli):**
 - `enabled` - Enable/disable executor
+- `model` - Model to use (default: `sonnet`)
+- `timeout` - Timeout in seconds (default: 120)
+
+**API Executors (cerebras-api):**
+- `enabled` - Enable/disable executor
+- `model` - Model to use (default: `llama-3.3-70b`)
+- `temperature` - Temperature (default: 0.7)
+- `maxTokens` - Max tokens (default: 8192)
 
 #### Linking Agents to Executors
 
@@ -268,7 +279,7 @@ Agents reference executors via the `executor` field in their Markdown configurat
 
 ```markdown
 ---
-ID: code-review
+ID: bug-hunter
 Executor: claude-cli
 ---
 ```
@@ -282,18 +293,18 @@ Agents are configured using **Markdown files** in `src/defaults/agents/`. See th
 Each agent is defined in a `.md` file with frontmatter metadata:
 
 ```markdown
-# Agent: Code Review
+# Agent: Bug Hunter
 
 ---
-ID: code-review
+ID: bug-hunter
 Order: 1
 Enabled: true
-Executor: claude-api
+Executor: claude-cli
 ---
 
 ## Description
 
-Performs comprehensive code reviews to identify bugs and improvements.
+Detects bugs, logic errors and runtime issues in code.
 
 ## System Prompt
 

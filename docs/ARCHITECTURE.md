@@ -27,31 +27,30 @@ Two-level separation:
 
 ## Examples
 
-### Agent: Code Review
+### Agent: Bug Hunter
 
 ```json
 {
-  "id": "code-review",
-  "name": "Code Review",
-  "description": "Reviews code changes for potential issues",
-  "systemPrompt": "You are a code reviewer. Analyze the following code changes...",
+  "id": "bug-hunter",
+  "name": "Bug Hunter",
+  "description": "Detects bugs, logic errors and runtime issues",
+  "systemPrompt": "You are a bug detection specialist focused on identifying logic errors...",
   "enabled": true,
   "order": 1,
-  "executorId": "auggie-cli"
+  "executor": "claude-cli"
 }
 ```
 
-### Agent Executor: Auggie CLI
+### Agent Executor: Claude CLI
 
 ```json
 {
-  "id": "auggie-cli",
-  "name": "Auggie CLI",
-  "description": "Execute via Auggie CLI agent",
+  "name": "claude-cli",
+  "description": "Execute via Claude Code CLI",
   "type": "cli",
-  "command": "auggie",
-  "args": ["--print", "--quiet"],
-  "timeout": 60,
+  "command": "claude",
+  "model": "sonnet",
+  "timeout": 120,
   "enabled": true
 }
 ```
@@ -66,15 +65,14 @@ Executes Agents via CLI commands.
 ```typescript
 {
   type: "cli",
-  command: "auggie",
-  args: ["--print", "--quiet"],
-  env: { "API_KEY": "..." },
-  timeout: 60
+  command: "claude",
+  args: ["-p", "--output-format", "json"],
+  model: "sonnet",
+  timeout: 120
 }
 ```
 
 **Supported CLI tools:**
-- `auggie` - Augment's CLI agent
 - `claude` - Claude Code CLI
 - Custom CLI tools
 
@@ -95,9 +93,7 @@ Executes Agents via LLM API calls.
 ```
 
 **Supported providers:**
-- `anthropic` - Claude API
-- `openai` - GPT API
-- `cerebras` - Cerebras API
+- `cerebras` - Cerebras API (default)
 - `custom` - Custom API endpoint
 
 ## Global Singletons
@@ -105,7 +101,7 @@ Executes Agents via LLM API calls.
 The project uses global singletons for state management:
 
 ```typescript
-executorFactory  // src/executors/factory.ts - executor registry
+executors        // src/executors.ts - executor registry
 agentRegistry    // src/agents/registry.ts - agent registry
 configCache      // src/config.ts - config cache
 ```
@@ -126,10 +122,10 @@ configCache      // src/config.ts - config cache
 ### Registering Executors
 
 ```typescript
-import { executorFactory } from "./executors/factory";
+import { loadExecutors } from "./executors";
 
-// Auto-discover and register all executors
-await executorFactory.autoDiscover();
+// Load all executors
+const executors = await loadExecutors();
 ```
 
 ### Registering Agents
@@ -147,6 +143,8 @@ for (const agent of agents) {
 ### Executing Agents
 
 ```typescript
+import { executeAgent } from "./executors";
+
 const context: ExecutionContext = {
   agent,
   executor: executor.getInfo(),
@@ -154,7 +152,7 @@ const context: ExecutionContext = {
   systemPrompt: agent.systemPrompt,
 };
 
-const result = await executorFactory.executeAgent(context);
+const result = await executeAgent(context);
 ```
 
 ## Stage Pipeline Architecture
@@ -404,25 +402,22 @@ The disk cache approach prioritizes **startup speed** over automatic freshness.
 ```
 src/
 ├── md-loader.ts          # Generic markdown loader
-├── executors/
-│   ├── base/
-│   │   ├── executor.ts   # Base executor class
-│   │   ├── cli.ts        # Base CLI executor
-│   │   └── api.ts        # Base API executor
-│   ├── cli/
-│   │   ├── claude-cli.ts # Claude CLI executor
-│   │   ├── auggie-cli.ts # Auggie CLI executor
-│   │   └── default-cli.ts# Default CLI executor
-│   ├── api/
-│   │   ├── claude-api.ts # Claude API executor
-│   │   ├── openai-api.ts # OpenAI API executor
-│   │   └── cerebras-api.ts # Cerebras API executor
-│   └── factory.ts        # Executor factory
+├── executors.ts          # Executor definitions and registry
 ├── agents/
 │   ├── registry.ts       # Agent registry
-│   ├── defaults.ts       # Default Agents
-│   └── md-loader.ts      # Agent markdown loader wrapper
-├── rules/
-│   └── md-loader.ts      # Rule markdown loader wrapper
+│   └── index.ts          # Agent loader
+├── rules.ts              # Rules loader
+├── stages/               # Pipeline stages
+│   ├── index.ts
+│   ├── load-rules.ts
+│   ├── match-rules.ts
+│   ├── execute-agents.ts
+│   ├── aggregate-results.ts
+│   ├── deduplication.ts
+│   └── validation.ts
+├── defaults/
+│   ├── agents/*.md       # Agent definitions
+│   ├── rules/*.md        # Rule definitions
+│   └── prompts/*.md      # Prompt templates
 └── types.ts              # Type definitions
 ```

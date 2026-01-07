@@ -12,6 +12,14 @@ import { loadAgents, syncAgentsToConfig } from '../agents.js';
 import { log } from '../logger';
 
 /**
+ * Truncate string with ellipsis
+ */
+function truncate(str: string, maxLen: number): string {
+  if (str.length <= maxLen) return str;
+  return str.substring(0, maxLen - 1) + '…';
+}
+
+/**
  * List all Agents
  */
 export async function listAgents(): Promise<void> {
@@ -25,12 +33,52 @@ export async function listAgents(): Promise<void> {
     return;
   }
 
+  // Calculate column widths
+  const cols = {
+    status: 1,
+    id: Math.max(2, ...agents.map((a) => a.id.length)),
+    name: Math.max(4, ...agents.map((a) => a.name.length)),
+    executor: Math.max(8, ...agents.map((a) => a.executor.length)),
+    description: 35,
+  };
+
+  // Header
+  const header = [
+    ''.padEnd(cols.status),
+    'ID'.padEnd(cols.id),
+    'Name'.padEnd(cols.name),
+    'Executor'.padEnd(cols.executor),
+    'Description'.padEnd(cols.description),
+  ].join('  ');
+
+  const separator = [
+    '-'.repeat(cols.status),
+    '-'.repeat(cols.id),
+    '-'.repeat(cols.name),
+    '-'.repeat(cols.executor),
+    '-'.repeat(cols.description),
+  ].join('  ');
+
+  log.plain(header);
+  log.plain(separator);
+
+  // Rows
   for (const agent of agents) {
-    log.plain(`● [${agent.id}] ${agent.name}`);
-    log.plain(`   ${agent.description}`);
-    log.plain(`   Executor: ${agent.executor}`);
-    log.newline();
+    const status = agent.enabled ? '●' : '○';
+    const description = truncate(agent.description, cols.description);
+
+    const row = [
+      status.padEnd(cols.status),
+      agent.id.padEnd(cols.id),
+      agent.name.padEnd(cols.name),
+      agent.executor.padEnd(cols.executor),
+      description.padEnd(cols.description),
+    ].join('  ');
+
+    log.plain(row);
   }
+
+  log.newline();
 }
 
 /**
