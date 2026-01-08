@@ -1,6 +1,7 @@
 /**
  * Stage 5: Validation
  * Validates issues found by agents using an LLM to filter out false positives
+ * Uses ID-based approach for reliable issue matching
  */
 
 import type {
@@ -12,9 +13,13 @@ import type {
   Agent,
   AgentExecutor,
 } from '../types';
-import { parseIssues } from '../issue-parser';
 import { log } from '../logger';
 import { executorFactory, getExecutor } from '../executors';
+
+// Issue with assigned ID for validation tracking
+interface IndexedIssue extends Issue {
+  id: number;
+}
 import { getCached, CACHE_KEYS } from '../cache';
 import {
   chunk,
@@ -67,6 +72,210 @@ async function loadValidationAgent(): Promise<Agent> {
 // ============ Helper Functions ============
 
 /**
+ * Format issues for validation in XML/Markdown format with IDs
+ */
+function formatIssuesForValidation(issues: IndexedIssue[]): string {
+  return issues
+    .map((issue) => {
+      const lines = [
+        `<issue id="${issue.id}">`,
+        `**[${issue.severity.toUpperCase()}] ${issue.category}** in \`${issue.file}:${issue.lineStart}-${issue.lineEnd}\``,
+        `Agent: ${issue.agent}`,
+        '',
+        `**Problem:** ${issue.shortDescription}`,
+        '',
+        issue.fullDescription,
+      ];
+
+      if (issue.suggestion) {
+        lines.push('', `**Suggestion:** ${issue.suggestion}`);
+      }
+
+      lines.push('</issue>');
+      return lines.join('\n');
+    })
+    .join('\n\n');
+}
+
+/**
+ * Normalize file path for comparison (handle different path formats)
+ */
+function normalizeFilePath(filePath: string): string {
+  return filePath
+    .replace(/\\/g, '/') // Windows to Unix
+    .replace(/^\.\//, '') // Remove leading ./
+    .toLowerCase();
+}
+
+/**
+ * Check if two line ranges overlap or are close
+ */
+function linesOverlapOrClose(
+  line1Start: number,
+  line1End: number,
+  line2Start: number,
+  line2End: number,
+  tolerance: number = 5
+): boolean {
+  // Check if ranges overlap
+  if (line1Start <= line2End && line2Start <= line1End) {
+    return true;
+  }
+  // Check if ranges are within tolerance
+  return (
+    Math.abs(line1Start - line2Start) <= tolerance ||
+    Math.abs(line1End - line2End) <= tolerance ||
+    Math.abs(line1Start - line2End) <= tolerance ||
+    Math.abs(line1End - line2Start) <= tolerance
+  );
+}
+
+/**
+ * Calculate similarity score between two issues (0-100)
+ */
+function calculateIssueSimilarity(
+  original: IndexedIssue,
+  returned: { file?: string; lineStart?: number; lineEnd?: number; shortDescription?: string }
+): number {
+  let score = 0;
+
+  // File match (required - 40 points)
+  if (returned.file) {
+    const normalizedOriginal = normalizeFilePath(original.file);
+    const normalizedReturned = normalizeFilePath(returned.file);
+    if (normalizedOriginal === normalizedReturned) {
+      score += 40;
+    } else if (
+      normalizedOriginal.endsWith(normalizedReturned) ||
+      normalizedReturned.endsWith(normalizedOriginal)
+    ) {
+      score += 30; // Partial path match
+    } else {
+      return 0; // File must match at least partially
+    }
+  } else {
+    return 0;
+  }
+
+  // Line range match (30 points)
+  if (typeof returned.lineStart === 'number') {
+    const returnedEnd = returned.lineEnd ?? returned.lineStart;
+    if (linesOverlapOrClose(original.lineStart, original.lineEnd, returned.lineStart, returnedEnd)) {
+      score += 30;
+    } else if (Math.abs(original.lineStart - returned.lineStart) <= 20) {
+      score += 15; // Within 20 lines
+    }
+  }
+
+  // Description similarity (30 points)
+  if (returned.shortDescription && original.shortDescription) {
+    const origWords = new Set(original.shortDescription.toLowerCase().split(/\W+/).filter(w => w.length > 3));
+    const retWords = new Set(returned.shortDescription.toLowerCase().split(/\W+/).filter(w => w.length > 3));
+    const intersection = [...origWords].filter(w => retWords.has(w));
+    const similarity = intersection.length / Math.max(origWords.size, retWords.size, 1);
+    score += Math.round(similarity * 30);
+  }
+
+  return score;
+}
+
+/**
+ * Parse validated issue IDs from validator output
+ * Expects format: <valid-ids>[1, 2, 3]</valid-ids>
+ * Falls back to matching issues from <json> format if validator returns full issues
+ */
+function parseValidatedIds(output: string, batch?: IndexedIssue[]): number[] {
+  // Try <valid-ids>...</valid-ids> format first
+  const tagMatch = output.match(/<valid-ids>\s*(\[[\s\S]*?\])\s*<\/valid-ids>/);
+  if (tagMatch?.[1]) {
+    try {
+      const ids = JSON.parse(tagMatch[1]);
+      if (Array.isArray(ids) && ids.every((id) => typeof id === 'number')) {
+        return ids;
+      }
+    } catch {
+      // Fall through to fallback
+    }
+  }
+
+  // Fallback: find any JSON array of numbers (e.g., [1, 2, 3])
+  const arrayMatch = output.match(/\[\s*(\d+\s*(?:,\s*\d+\s*)*)\]/);
+  if (arrayMatch?.[1]) {
+    try {
+      const ids = JSON.parse(`[${arrayMatch[1]}]`);
+      if (Array.isArray(ids)) {
+        const validIds = ids.filter((id) => typeof id === 'number');
+        if (validIds.length > 0) {
+          return validIds;
+        }
+      }
+    } catch {
+      // Fall through to JSON fallback
+    }
+  }
+
+  // Fallback: try <json>...</json> format with issue objects
+  // Use fuzzy matching to find original issues
+  if (batch && batch.length > 0) {
+    const jsonTagMatch = output.match(/<json>\s*([\s\S]*?)\s*<\/json>/);
+    if (jsonTagMatch?.[1]) {
+      try {
+        const issues = JSON.parse(jsonTagMatch[1]);
+        if (Array.isArray(issues) && issues.length > 0) {
+          const matchedIds = new Set<number>();
+
+          for (const returnedIssue of issues) {
+            // Find best matching original issue using similarity scoring
+            let bestMatch: IndexedIssue | null = null;
+            let bestScore = 0;
+
+            for (const indexed of batch) {
+              // Skip already matched issues
+              if (matchedIds.has(indexed.id)) continue;
+
+              const score = calculateIssueSimilarity(indexed, returnedIssue);
+              if (score > bestScore && score >= 40) {
+                // Minimum 40 points (file must match)
+                bestScore = score;
+                bestMatch = indexed;
+              }
+            }
+
+            if (bestMatch) {
+              matchedIds.add(bestMatch.id);
+            }
+          }
+
+          if (matchedIds.size > 0) {
+            return Array.from(matchedIds);
+          }
+        }
+      } catch {
+        // JSON parse failed
+      }
+    }
+  }
+
+  return [];
+}
+
+/**
+ * Filter context.results keeping only issues with valid IDs
+ */
+function filterByIds(
+  results: { issues: Issue[] }[],
+  validIds: Set<number>,
+  issueIdMap: Map<Issue, number>
+): void {
+  results.forEach((result) => {
+    result.issues = result.issues.filter((issue) => {
+      const id = issueIdMap.get(issue);
+      return id !== undefined && validIds.has(id);
+    });
+  });
+}
+
+/**
  * Get executor for validation agent with settings applied
  */
 function getValidationExecutor(
@@ -92,19 +301,20 @@ function getValidationExecutor(
 
 /**
  * Execute validation for a single batch of issues
+ * Returns array of valid issue IDs
  */
 async function executeValidationBatch(
-  batch: Issue[],
+  batch: IndexedIssue[],
   batchIdx: number,
   totalBatches: number,
   validationAgent: Agent,
   executor: AgentExecutor,
   context: PipelineContext
-): Promise<BatchResult<Issue[]>> {
-  // Convert batch to JSON
-  const issuesJson = JSON.stringify(batch, null, 2);
+): Promise<BatchResult<number[]>> {
+  // Format issues as XML/Markdown with IDs
+  const issuesFormatted = formatIssuesForValidation(batch);
 
-  // Build repository context (same as execute-agents stage)
+  // Build repository context
   const repoPath = context.metadata.repository;
   const repoContext = [
     `# Repository Context`,
@@ -115,8 +325,8 @@ async function executeValidationBatch(
     context.metadata.headRef ? `Head ref: ${context.metadata.headRef}` : null,
   ].filter(Boolean).join('\n');
 
-  // Combine repository context with issues JSON
-  const inputWithContext = `${repoContext}\n\n# Issues to validate:\n${issuesJson}`;
+  // Combine repository context with formatted issues
+  const inputWithContext = `${repoContext}\n\n# Issues to validate (${batch.length} total):\n\n${issuesFormatted}`;
 
   // Create execution context
   const execContext: ExecutionContext = {
@@ -138,7 +348,7 @@ async function executeValidationBatch(
     log.plain(`   Executor: ${executor.name}`);
     log.plain(`   Issues to validate: ${batch.length}`);
     log.plain('─'.repeat(80));
-    log.plain(`${validationAgent.systemPrompt}\n\n# Input:\n${repoContext}\n\n# Issues to validate:\n<issues JSON ${issuesJson.length} chars>`);
+    log.plain(inputWithContext.slice(0, 2000) + (inputWithContext.length > 2000 ? '...' : ''));
     log.plain('─'.repeat(80));
     log.newline();
   }
@@ -158,43 +368,21 @@ async function executeValidationBatch(
         return { success: false, data: [], error: result.error };
       }
 
-      // Parse validated issues from this batch (no agent override, preserve original)
-      const batchValidatedIssues = parseIssues(result.output);
-      return { success: true, data: batchValidatedIssues };
+      // Parse validated IDs from response
+      // Pass batch to support fallback matching when validator returns <json> format
+      const validIds = parseValidatedIds(result.output, batch);
+      return { success: true, data: validIds };
     },
-    (issues, duration) =>
+    (ids, duration) =>
       totalBatches > 1
-        ? `Validated batch ${batchIdx + 1}/${totalBatches} (${issues.length} valid, ${duration}ms)`
-        : `Validated ${issues.length} issue(s) (${duration}ms)`,
+        ? `Validated batch ${batchIdx + 1}/${totalBatches} (${ids.length} valid, ${duration}ms)`
+        : `Validated ${ids.length} issue(s) (${duration}ms)`,
     (error) =>
       totalBatches > 1
         ? `Validation failed (batch ${batchIdx + 1}): ${error}`
         : `Validation failed: ${error}`
   );
 }
-
-/**
- * Filter context.results to keep only issues that validator confirmed as valid.
- * Uses file:lineStart:lineEnd as key since agent field may not be preserved by parseIssues.
- */
-function filterByValidated(
-  results: { issues: Issue[] }[],
-  validatedIssues: Issue[]
-): void {
-  const validatedIssueSet = new Set(
-    validatedIssues.map(
-      (issue) => `${issue.file}:${issue.lineStart}:${issue.lineEnd}`
-    )
-  );
-
-  results.forEach((result) => {
-    result.issues = result.issues.filter((issue) => {
-      const key = `${issue.file}:${issue.lineStart}:${issue.lineEnd}`;
-      return validatedIssueSet.has(key);
-    });
-  });
-}
-
 
 /**
  * Create validation stage
@@ -222,10 +410,16 @@ export function createValidationStage(): Stage {
         };
       }
 
-      // Collect all issues from all results
+      // Collect all issues from all results and assign IDs
       const allIssues: Issue[] = [];
+      const issueIdMap = new Map<Issue, number>();
+
       context.results.forEach((result) => {
-        allIssues.push(...result.issues);
+        result.issues.forEach((issue) => {
+          const id = allIssues.length + 1;
+          allIssues.push(issue);
+          issueIdMap.set(issue, id);
+        });
       });
 
       if (allIssues.length === 0) {
@@ -239,6 +433,12 @@ export function createValidationStage(): Stage {
           duration: Date.now() - startTime,
         };
       }
+
+      // Create indexed issues for validation
+      const indexedIssues: IndexedIssue[] = allIssues.map((issue, i) => ({
+        ...issue,
+        id: i + 1,
+      }));
 
       // Load validation agent from MD file
       const validationAgent = await loadValidationAgent();
@@ -255,7 +455,7 @@ export function createValidationStage(): Stage {
       }
 
       // Split into batches if needed
-      const batches = chunk(allIssues, VALIDATION_BATCH_SIZE);
+      const batches = chunk(indexedIssues, VALIDATION_BATCH_SIZE);
       const needsBatching = batches.length > 1;
 
       // Get model from executor
@@ -304,11 +504,11 @@ export function createValidationStage(): Stage {
           };
         }
 
-        // Merge all validated issues and filter context.results
-        const validatedIssues = batchResults.flatMap((r) => r.data);
-        filterByValidated(context.results, validatedIssues);
+        // Collect all valid IDs and filter context.results
+        const validIds = new Set(batchResults.flatMap((r) => r.data));
+        filterByIds(context.results, validIds, issueIdMap);
 
-        const validCount = validatedIssues.length;
+        const validCount = validIds.size;
         const invalidCount = allIssues.length - validCount;
         const duration = Date.now() - startTime;
 

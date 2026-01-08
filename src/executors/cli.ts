@@ -22,6 +22,28 @@ const CLAUDE_CLI_DEFAULTS = {
 } as const;
 
 /**
+ * Get effective timeout from context executor or config
+ */
+function getEffectiveTimeout(ctx: ExecutionContext, configTimeout: number | undefined): number {
+  // Prefer timeout from ctx.executor (applied via applySettings) over config default
+  if (ctx.executor.type === 'cli' && ctx.executor.timeout !== undefined) {
+    return ctx.executor.timeout;
+  }
+  return configTimeout || 60;
+}
+
+/**
+ * Get effective model from context executor or config
+ */
+function getEffectiveModel(ctx: ExecutionContext, configModel: string | undefined): string | undefined {
+  // Prefer model from ctx.executor (applied via applySettings) over config default
+  if (ctx.executor.type === 'cli' && ctx.executor.model !== undefined) {
+    return ctx.executor.model;
+  }
+  return configModel;
+}
+
+/**
  * Execute Claude CLI with streaming
  */
 async function executeClaudeCli(
@@ -34,9 +56,12 @@ async function executeClaudeCli(
   const systemPrompt = `${ctx.systemPrompt}\n\n${format}`;
   const userPrompt = ctx.input;
 
+  const effectiveModel = getEffectiveModel(ctx, config.model);
+  const effectiveTimeout = getEffectiveTimeout(ctx, config.timeout);
+
   let finalArgs = config.args || [];
-  if (config.model) {
-    finalArgs = [...finalArgs, '--model', config.model];
+  if (effectiveModel) {
+    finalArgs = [...finalArgs, '--model', effectiveModel];
   }
 
   // Use streaming JSON format
@@ -59,7 +84,7 @@ async function executeClaudeCli(
       : [config.command, ...streamArgs, fullPrompt];
   }
 
-  const output = await streamClaudeCli(cmdArgs, config.env || {}, config.timeout || 60, {
+  const output = await streamClaudeCli(cmdArgs, config.env || {}, effectiveTimeout, {
     stream: ctx.stream ?? false,
     verbose: ctx.verbose ?? false,
     agentName: ctx.agent.name,
@@ -81,9 +106,12 @@ async function executeGenericCli(
   const userPrompt = buildUserPrompt(ctx.input, format);
   const systemPrompt = ctx.systemPrompt;
 
+  const effectiveModel = getEffectiveModel(ctx, config.model);
+  const effectiveTimeout = getEffectiveTimeout(ctx, config.timeout);
+
   let finalArgs = config.args || [];
-  if (config.model) {
-    finalArgs = [...finalArgs, '--model', config.model];
+  if (effectiveModel) {
+    finalArgs = [...finalArgs, '--model', effectiveModel];
   }
 
   let cmdArgs: string[];
@@ -119,7 +147,7 @@ async function executeGenericCli(
     proc.stdin.end();
   }
 
-  const timeout = (config.timeout || 60) * 1000;
+  const timeout = effectiveTimeout * 1000;
   const timer = setTimeout(() => proc.kill(), timeout);
 
   const [stdout, stderr] = await Promise.all([
@@ -142,7 +170,7 @@ async function executeGenericCli(
       ctx,
       false,
       '',
-      `Process killed (timeout after ${config.timeout || 60}s or signal)${stderr ? `: ${stderr}` : ''}`,
+      `Process killed (timeout after ${effectiveTimeout}s or signal)${stderr ? `: ${stderr}` : ''}`,
       Date.now() - start,
       userPrompt
     );
