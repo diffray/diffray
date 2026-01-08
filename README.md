@@ -12,6 +12,19 @@
 Git Diffs → Specialized Agents → Deduplication → Validation → Verified Issues
 ```
 
+## About This Version
+
+This is a **simplified, lightweight version** of the full [diffray.ai](https://diffray.ai) platform — and it's **completely free**.
+
+Despite its minimal footprint, it achieves **high bug detection rates** and **low false positive noise** by leveraging **Claude Code** as the primary executor.
+
+Claude Code provides:
+- **Deep codebase understanding** - full file access and navigation
+- **Context-aware analysis** - reads related files to understand impact
+- **Accurate issue validation** - verifies findings against actual code
+
+The result: fewer false alarms, more actionable findings.
+
 ## Why diffray?
 
 ### Multi-Agent Architecture
