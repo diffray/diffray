@@ -1,8 +1,17 @@
 import { z } from 'zod';
 import { join } from 'path';
 import { homedir } from 'os';
-import type { Agent, RuleRef } from './types';
 import { getCached, setCache, invalidateCache, CACHE_KEYS } from './cache';
+
+// Schema for saved executor overrides (partial config stored in config.json)
+const ExecutorConfigSchema = z.object({
+  name: z.string(),
+  enabled: z.boolean().optional(),
+  model: z.string().optional(),
+  temperature: z.number().min(0).max(2).optional(),
+  maxTokens: z.number().positive().optional(),
+  timeout: z.number().positive().optional(),
+});
 
 export const ConfigSchema = z.object({
   excludePatterns: z.array(z.string()).default(['*.lock', '*.min.js', 'dist/*', 'node_modules/**']),
@@ -20,9 +29,7 @@ export const ConfigSchema = z.object({
       model: z.string().optional(), // Model override (e.g., 'haiku', 'llama-3.3-70b')
     })
     .default({}),
-  executors: z.array(z.any()).default([]),
-  agents: z.array(z.any()).default([]),
-  rules: z.array(z.any()).default([]),
+  executors: z.array(ExecutorConfigSchema).default([]),
   stages: z
     .array(z.object({ id: z.string(), enabled: z.boolean(), order: z.number().optional() }))
     .default([]),
@@ -77,9 +84,8 @@ export async function updateConfig(updates: Partial<Config>): Promise<Config> {
     excludePatterns:
       updates.excludePatterns !== undefined ? updates.excludePatterns : current.excludePatterns,
     output: updates.output ? { ...current.output, ...updates.output } : current.output,
+    validation: updates.validation ? { ...current.validation, ...updates.validation } : current.validation,
     executors: updates.executors !== undefined ? updates.executors : current.executors,
-    agents: updates.agents !== undefined ? updates.agents : current.agents,
-    rules: updates.rules !== undefined ? updates.rules : current.rules,
     stages: updates.stages !== undefined ? updates.stages : current.stages,
   };
 
@@ -131,13 +137,4 @@ export async function loadInstructions(): Promise<string> {
 
 export function getInstructionsPath(): string {
   return INSTRUCTIONS_FILE;
-}
-
-// Agents and rules are cached from MD files for performance
-export function getAgents(config: Config): Agent[] {
-  return config.agents || [];
-}
-
-export function getRuleRefs(config: Config): RuleRef[] {
-  return config.rules || [];
 }

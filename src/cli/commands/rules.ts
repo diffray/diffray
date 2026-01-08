@@ -1,5 +1,5 @@
 import { defineCommand } from 'citty';
-import { listRules, showRule, testRule, syncRules } from '../../commands/rules.js';
+import { listRules, showRule, testRule } from '../../commands/rules.js';
 
 export const rulesCmd = defineCommand({
   meta: {
@@ -50,14 +50,6 @@ export const rulesCmd = defineCommand({
         // rawArgs contains all positional args after the subcommand
         const files = rawArgs.slice(1); // Skip the rule ID
         testRule(args.id!, files.length > 0 ? files : [args.files!]);
-      },
-    },
-    sync: {
-      meta: {
-        description: 'Sync rules from YAML files to cache',
-      },
-      run: () => {
-        syncRules();
       },
     },
   },

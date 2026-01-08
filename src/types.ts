@@ -47,7 +47,6 @@ export interface Issue {
  * The specific task (WHAT to check) comes from Rule.prompt
  */
 export interface Agent {
-  id: string;
   name: string;
   description: string;
   systemPrompt: string; // Agent settings: focus area, specialization, output format
@@ -71,7 +70,6 @@ export type AgentExecutorType = 'llm-api' | 'cli' | 'mcp';
  * Defines HOW to execute the task
  */
 export interface BaseAgentExecutor {
-  id: string;
   name: string;
   description: string;
   type: AgentExecutorType;
@@ -129,16 +127,15 @@ export interface ExecutionContext {
   verbose?: boolean; // Verbose mode flag (raw JSON)
   quiet?: boolean; // Suppress output (for JSON mode)
   stream?: boolean; // Show streaming (thinking, preliminary issues)
+  cwd?: string; // Working directory for CLI executors
 }
 
 /**
  * Execution Result - execution result
  */
 export interface ExecutionResult {
-  agentId: string;
-  agentName: string;
+  agent: string;
   executor: string;
-  executorName: string;
   success: boolean;
   output: string;
   error?: string;
@@ -154,6 +151,8 @@ export interface PipelineContext {
     timestamp: number;
     repository: string;
     branch?: string;
+    baseRef?: string; // Base commit/branch for comparison
+    headRef?: string; // Head commit/branch for comparison
   };
   verbose?: boolean;
   quiet?: boolean; // Suppress all logs (for JSON output mode)
@@ -167,10 +166,8 @@ export interface PipelineContext {
 }
 
 export interface AgentResult {
-  agentId: string;
-  agentName: string;
+  agent: string;
   executor: string;
-  executorName: string;
   success: boolean;
   output: string;
   error?: string;

@@ -1,24 +1,24 @@
 export interface Identifiable {
-  readonly id: string;
+  readonly name: string;
 }
 
 export class Registry<T extends Identifiable> {
   protected items = new Map<string, T>();
 
   register(item: T): void {
-    this.items.set(item.id, item);
+    this.items.set(item.name, item);
   }
 
-  get(id: string): T | undefined {
-    return this.items.get(id);
+  get(name: string): T | undefined {
+    return this.items.get(name);
   }
 
   list(): T[] {
     return Array.from(this.items.values());
   }
 
-  remove(id: string): void {
-    this.items.delete(id);
+  remove(name: string): void {
+    this.items.delete(name);
   }
 
   clear(): void {

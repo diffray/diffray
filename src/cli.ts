@@ -187,14 +187,15 @@ async function runReview(args: {
 
   // Pipeline handles registration internally
   const pipeline = new Pipeline(agents, executors);
-  const result = await pipeline.execute(
-    filteredDiffs,
+  const result = await pipeline.execute(filteredDiffs, {
     verbose,
-    json,
-    config.concurrency,
+    quiet: json,
+    concurrency: config.concurrency,
     skipValidation,
-    stream
-  );
+    stream,
+    baseRef: base,
+    headRef: head,
+  });
 
   const issuesFromResults = result.context.results.flatMap((r) => r.issues);
 

@@ -38,14 +38,11 @@ export async function showCache(): Promise<void> {
     const config = await loadConfig();
 
     log.plain('Contents:');
-    if (config.agents) {
-      log.plain(`  • Agents: ${config.agents.length}`);
-    }
     if (config.executors) {
       log.plain(`  • Executors: ${config.executors.length}`);
     }
-    if (config.rules) {
-      log.plain(`  • Rules: ${config.rules.length}`);
+    if (config.stages) {
+      log.plain(`  • Stages: ${config.stages.length}`);
     }
     log.newline();
   } catch (e) {
@@ -84,21 +81,17 @@ export async function explainCache(): Promise<void> {
   log.robot('About diffray Configuration');
   log.newline();
 
-  log.plain('diffray uses a unified configuration file (config.json) that stores all settings:');
+  log.plain('diffray uses a configuration file (config.json) for settings:');
   log.newline();
 
   log.plain('Configuration Data:');
-  log.plain('  ▸ Agents - AI review agents configuration');
   log.plain('  ▸ Executors - Executor configurations');
-  log.plain('  ▸ Rules - Review rules and criteria');
   log.plain('  ▸ Stages - Pipeline stages configuration');
+  log.plain('  ▸ Validation - Validation settings');
   log.newline();
-  log.plain('Cache Behavior:');
-  log.plain('  ▸ Configuration is loaded from config.json');
-  log.plain('  ▸ In-memory caching improves performance');
-  log.plain('  ▸ Changes are automatically saved to disk');
-  log.plain("  ▸ Use 'diffray agents sync' to refresh from Markdown files");
-  log.plain("  ▸ Use 'diffray rules sync' to refresh from YAML files");
+  log.plain('Dynamic Data (always loaded from MD files):');
+  log.plain('  ▸ Agents - Loaded from ~/.diffray/agents/ and .diffray/agents/');
+  log.plain('  ▸ Rules - Loaded from ~/.diffray/rules/ and .diffray/rules/');
   log.newline();
 
   log.plain('Location: ~/.diffray/config.json');
@@ -108,6 +101,5 @@ export async function explainCache(): Promise<void> {
   log.plain('  • To restore default settings');
   log.plain('  • When troubleshooting configuration issues');
   log.plain('  • If configuration becomes corrupted');
-  log.plain('  • Note: Resetting will clear all custom settings');
   log.newline();
 }

@@ -2,15 +2,200 @@
  * Stage 2: Execute Agents
  */
 
-import type { Stage, StageResult, PipelineContext, ExecutionContext, AgentResult } from '../types';
+import type { Stage, StageResult, PipelineContext, ExecutionContext, AgentResult, Issue } from '../types';
 import { agentRegistry } from '../agents/registry';
 import { executorFactory } from '../executors';
-import { log, Spinner } from '../logger';
+import { log } from '../logger';
 import { parseIssues } from '../issue-parser';
 import { batchDiffs, formatBatchInfo } from '../token-utils';
 import { getTokenCounterName, estimateTokens } from '../token-counter';
 import { createLimiter } from '../concurrency';
 import { loadInstructions } from '../config';
+import { withSpinner, aggregateErrors, type BatchResult } from '../batch-executor';
+
+interface BatchInfo {
+  batches: ReturnType<typeof batchDiffs>;
+  files: number;
+  rules: number;
+  systemPrompt: string;
+}
+
+/** Result type for agent batch execution */
+type AgentBatchResult = BatchResult<Issue[]>;
+
+async function prepareBatchInfo(
+  enabledAgents: any[],
+  context: PipelineContext,
+  instructions: string | null
+): Promise<Map<string, BatchInfo>> {
+  const agentBatchInfo = new Map<string, BatchInfo>();
+
+  for (const agent of enabledAgents) {
+    // Find ALL matched rules for this Agent
+    const matchedRules = context.matchedRules?.filter((mr) => mr.agent.name === agent.name) || [];
+
+    // Skip agents with no matched rules
+    if (matchedRules.length === 0) {
+      continue;
+    }
+
+    // Get diffs for this Agent (combine files from all matched rules)
+    // Combine files from all rules (deduplicated)
+    const matchedFileSet = new Set<string>();
+    for (const mr of matchedRules) {
+      for (const file of mr.files) {
+        matchedFileSet.add(file);
+      }
+    }
+    const agentDiffs = context.diffs.filter((diff) => matchedFileSet.has(diff.file));
+
+    // Build system prompt: Agent.systemPrompt + Rule.prompts + global instructions
+    let systemPrompt = agent.systemPrompt;
+    const rulePrompts = matchedRules
+      .map((mr) => mr.rule.prompt)
+      .filter(Boolean)
+      .join('\n\n');
+    if (rulePrompts) {
+      systemPrompt = `${systemPrompt}\n\n${rulePrompts}`;
+    }
+    if (instructions) {
+      systemPrompt = `${systemPrompt}\n\n${instructions}`;
+    }
+
+    // Calculate batches
+    const batches = batchDiffs(agentDiffs, systemPrompt);
+    agentBatchInfo.set(agent.name, {
+      batches,
+      files: agentDiffs.length,
+      rules: matchedRules.length,
+      systemPrompt,
+    });
+  }
+
+  return agentBatchInfo;
+}
+
+async function executeBatch(
+  batch: ReturnType<typeof batchDiffs>[0],
+  batches: ReturnType<typeof batchDiffs>,
+  agent: any,
+  executor: any,
+  systemPrompt: string,
+  systemTokens: number,
+  context: PipelineContext,
+  limit: any
+): Promise<AgentBatchResult> {
+  return limit(async () => {
+    // Prepare batch input with repository context
+    // Include explicit base path instruction for CLI tools
+    const repoPath = context.metadata.repository;
+    const repoContext = [
+      `# Repository Context`,
+      `Base path: ${repoPath}`,
+      `All file paths below are relative to this directory.`,
+      `When using tools to read files, prepend this base path to get absolute paths.`,
+      context.metadata.baseRef ? `Base ref: ${context.metadata.baseRef}` : null,
+      context.metadata.headRef ? `Head ref: ${context.metadata.headRef}` : null,
+    ].filter(Boolean).join('\n');
+
+    const batchDiffsText = `${repoContext}\n\n${batch.diffs
+      .map((diff) => `File: ${diff.file}\n${diff.diff}`)
+      .join('\n\n')}`;
+
+    // Show prompt in verbose mode BEFORE execution
+    if (context.verbose && !context.quiet) {
+      const inputTokens = batch.tokenCount - systemTokens;
+
+      // Build summarized input (show file names with diff size instead of full diff)
+      const summarizedInput = batch.diffs
+        .map((diff) => `File: ${diff.file} <diff ${diff.diff.length} chars>`)
+        .join('\n');
+      const summarizedPrompt = `${systemPrompt}\n\n# Input:\n${summarizedInput}`;
+
+      log.newline();
+      log.plain(
+        `Prompt for ${agent.name} (batch ${batch.batchIndex + 1}/${batches.length}):`
+      );
+      log.plain(
+        `   Tokens: ${batch.tokenCount.toLocaleString()} (~${systemTokens.toLocaleString()} system + ~${inputTokens.toLocaleString()} input)`
+      );
+      log.plain('─'.repeat(80));
+      log.plain(summarizedPrompt);
+      log.plain('─'.repeat(80));
+      log.newline();
+    }
+
+    // Create execution context
+    const execContext: ExecutionContext = {
+      agent,
+      executor: executor.getInfo(),
+      input: batchDiffsText,
+      systemPrompt,
+      verbose: context.verbose,
+      quiet: context.quiet,
+      stream: context.stream,
+      cwd: context.metadata.repository,
+    };
+
+    return withSpinner(
+      {
+        label: agent.name,
+        batchIndex: batch.batchIndex,
+        totalBatches: batches.length,
+      },
+      context.quiet ?? false,
+      async () => {
+        const result = await executorFactory.executeAgent(execContext);
+        const batchIssues = parseIssues(result.output, agent.name);
+
+        return {
+          success: result.success,
+          data: batchIssues,
+          error: result.error,
+        };
+      },
+      (issues, duration) =>
+        batches.length > 1
+          ? `${agent.name} (batch ${batch.batchIndex + 1}/${batches.length}, ${duration}ms)`
+          : `${agent.name} (${duration}ms)`,
+      (error) =>
+        batches.length > 1
+          ? `${agent.name} (batch ${batch.batchIndex + 1}/${batches.length}): ${error}`
+          : `${agent.name}: ${error}`
+    );
+  });
+}
+
+function aggregateBatchResults(
+  batchResults: AgentBatchResult[],
+  agent: any,
+  batches: ReturnType<typeof batchDiffs>
+): AgentResult {
+  // Collect all issues and calculate total duration
+  const allIssues: Issue[] = [];
+  let totalDuration = 0;
+
+  for (const batchResult of batchResults) {
+    allIssues.push(...batchResult.data);
+    totalDuration += batchResult.duration || 0;
+  }
+
+  const batchSuccess = batchResults.every((batchResult) => batchResult.success);
+
+  // Format error message using shared utility
+  const agentError = aggregateErrors(batchResults.map((r) => r.error));
+
+  // Create combined AgentResult
+  return {
+    agent: agent.name,
+    executor: agent.executor,
+    success: batchSuccess,
+    output: `Processed ${batches.length} batch(es), found ${allIssues.length} issue(s)`,
+    duration: totalDuration,
+    issues: allIssues,
+    error: agentError,
+  };
+}
 
 export function createExecuteAgentsStage(): Stage {
   return {
@@ -49,58 +234,16 @@ export function createExecuteAgentsStage(): Stage {
       }
 
       // Pre-calculate batch info for all enabled agents
-      const agentBatchInfo = new Map<
-        string,
-        { batches: ReturnType<typeof batchDiffs>; files: number; rules: number; systemPrompt: string }
-      >();
+      const agentBatchInfo = await prepareBatchInfo(enabledAgents, context, instructions);
       let totalBatches = 0;
 
-      for (const agent of enabledAgents) {
-        // Find ALL matched rules for this Agent
-        const matchedRules = context.matchedRules?.filter((mr) => mr.agent.id === agent.id) || [];
-
-        // Skip agents with no matched rules
-        if (matchedRules.length === 0) {
-          continue;
-        }
-
-        // Get diffs for this Agent (combine files from all matched rules)
-        // Combine files from all rules (deduplicated)
-        const matchedFileSet = new Set<string>();
-        for (const mr of matchedRules) {
-          for (const file of mr.files) {
-            matchedFileSet.add(file);
-          }
-        }
-        const agentDiffs = context.diffs.filter((diff) => matchedFileSet.has(diff.file));
-
-        // Build system prompt: Agent.systemPrompt + Rule.prompts + global instructions
-        let systemPrompt = agent.systemPrompt;
-        const rulePrompts = matchedRules
-          .map((mr) => mr.rule.prompt)
-          .filter(Boolean)
-          .join('\n\n');
-        if (rulePrompts) {
-          systemPrompt = `${systemPrompt}\n\n${rulePrompts}`;
-        }
-        if (instructions) {
-          systemPrompt = `${systemPrompt}\n\n${instructions}`;
-        }
-
-        // Calculate batches
-        const batches = batchDiffs(agentDiffs, systemPrompt);
-        agentBatchInfo.set(agent.id, {
-          batches,
-          files: agentDiffs.length,
-          rules: matchedRules.length,
-          systemPrompt,
-        });
-        totalBatches += batches.length;
+      for (const [, info] of agentBatchInfo) {
+        totalBatches += info.batches.length;
       }
 
       // Count agents that will actually execute
-      const agentsToExecute = enabledAgents.filter((a) => agentBatchInfo.has(a.id));
-      const skippedAgents = enabledAgents.filter((a) => !agentBatchInfo.has(a.id));
+      const agentsToExecute = enabledAgents.filter((a) => agentBatchInfo.has(a.name));
+      const skippedAgents = enabledAgents.filter((a) => !agentBatchInfo.has(a.name));
 
       // Show enhanced summary
       if (!context.quiet) {
@@ -111,7 +254,7 @@ export function createExecuteAgentsStage(): Stage {
         // Show per-agent breakdown
         if (agentsToExecute.length > 0 || skippedAgents.length > 0) {
           for (const agent of agentsToExecute) {
-            const info = agentBatchInfo.get(agent.id);
+            const info = agentBatchInfo.get(agent.name);
             if (info) {
               log.plain(
                 `  • ${agent.name}: ${info.batches.length} batch${info.batches.length !== 1 ? 'es' : ''}, ${info.rules} rule${info.rules !== 1 ? 's' : ''}, ${info.files} file${info.files !== 1 ? 's' : ''}`
@@ -139,7 +282,7 @@ export function createExecuteAgentsStage(): Stage {
             }
 
             // Get pre-calculated batch info (guaranteed to exist for agentsToExecute)
-            const batchInfo = agentBatchInfo.get(agent.id)!;
+            const batchInfo = agentBatchInfo.get(agent.name)!;
             const { batches, systemPrompt } = batchInfo;
 
             const systemTokens = estimateTokens(systemPrompt);
@@ -154,142 +297,15 @@ export function createExecuteAgentsStage(): Stage {
             // Execute batches with concurrency limit
             const batchResults = await Promise.all(
               batches.map((batch) =>
-                limit(async () => {
-                  const batchSpinner: Spinner | null = context.quiet
-                    ? null
-                    : new Spinner(
-                        batches.length > 1
-                          ? `${agent.name} (batch ${batch.batchIndex + 1}/${batches.length})...`
-                          : `${agent.name}...`
-                      );
-
-                  // Prepare batch input
-                  const batchDiffsText = batch.diffs
-                    .map((diff) => `File: ${diff.file}\n${diff.diff}`)
-                    .join('\n\n');
-
-                  // Show prompt in verbose mode BEFORE execution
-                  if (context.verbose && !context.quiet) {
-                    const inputTokens = batch.tokenCount - systemTokens;
-
-                    // Build summarized input (show file names with diff size instead of full diff)
-                    const summarizedInput = batch.diffs
-                      .map((diff) => `File: ${diff.file} <diff ${diff.diff.length} chars>`)
-                      .join('\n');
-                    const summarizedPrompt = `${systemPrompt}\n\n# Input:\n${summarizedInput}`;
-
-                    log.newline();
-                    log.plain(
-                      `Prompt for ${agent.name} (batch ${batch.batchIndex + 1}/${batches.length}):`
-                    );
-                    log.plain(
-                      `   Tokens: ${batch.tokenCount.toLocaleString()} (~${systemTokens.toLocaleString()} system + ~${inputTokens.toLocaleString()} input)`
-                    );
-                    log.plain('─'.repeat(80));
-                    log.plain(summarizedPrompt);
-                    log.plain('─'.repeat(80));
-                    log.newline();
-                  }
-
-                  try {
-                    // Start spinner inside try to ensure cleanup
-                    batchSpinner?.start();
-
-                    // Create execution context
-                    const execContext: ExecutionContext = {
-                      agent,
-                      executor: executor.getInfo(),
-                      input: batchDiffsText,
-                      systemPrompt,
-                      verbose: context.verbose,
-                      quiet: context.quiet,
-                      stream: context.stream,
-                    };
-
-                    // Execute batch
-                    const result = await executorFactory.executeAgent(execContext);
-
-                    // Parse issues from batch output
-                    const batchIssues = parseIssues(result.output, agent.id);
-
-                    if (result.success) {
-                      batchSpinner?.succeed(
-                        batches.length > 1
-                          ? `${agent.name} (batch ${batch.batchIndex + 1}/${batches.length}, ${result.duration}ms)`
-                          : `${agent.name} (${result.duration}ms)`
-                      );
-                    } else {
-                      batchSpinner?.fail(
-                        `${agent.name} (batch ${batch.batchIndex + 1}/${batches.length}): ${result.error}`
-                      );
-                    }
-
-                    return {
-                      issues: batchIssues,
-                      duration: result.duration,
-                      success: result.success,
-                      error: result.error,
-                    };
-                  } catch (error) {
-                    const errorMessage = error instanceof Error ? error.message : String(error);
-                    batchSpinner?.fail(
-                      `${agent.name} (batch ${batch.batchIndex + 1}/${batches.length}): ${errorMessage}`
-                    );
-                    return {
-                      issues: [],
-                      duration: 0,
-                      success: false,
-                      error: errorMessage,
-                    };
-                  } finally {
-                    // Ensure spinner is stopped and cursor restored
-                    batchSpinner?.stop();
-                  }
-                })
+                executeBatch(batch, batches, agent, executor, systemPrompt, systemTokens, context, limit)
               )
             );
 
-            // Collect all issues, errors and calculate total duration
-            const allIssues: ReturnType<typeof parseIssues> = [];
-            const errors: string[] = [];
-            let totalDuration = 0;
-
-            for (const batchResult of batchResults) {
-              allIssues.push(...batchResult.issues);
-              totalDuration += batchResult.duration;
-              if (batchResult.error) {
-                errors.push(batchResult.error);
-              }
-            }
+            // Aggregate batch results
+            const agentResult = aggregateBatchResults(batchResults, agent, batches);
 
             // Add all issues to context
-            context.issues.push(...allIssues);
-
-            const batchSuccess = batchResults.every((batchResult) => batchResult.success);
-
-            // Format error message (deduplicate similar errors)
-            let agentError: string | undefined;
-            if (errors.length > 0) {
-              const uniqueErrors = [...new Set(errors)];
-              agentError =
-                uniqueErrors.length === 1 && errors.length > 1
-                  ? `${uniqueErrors[0]} (${errors.length} batches)`
-                  : uniqueErrors.join('; ');
-            }
-
-            // Create combined AgentResult
-            const agentResult: AgentResult = {
-              agentId: agent.id,
-              agentName: agent.name,
-              executor: agent.executor,
-              executorName: executorFactory.get(agent.executor)?.getInfo().name || 'unknown',
-              success: batchSuccess,
-              output: `Processed ${batches.length} batch(es), found ${allIssues.length} issue(s)`,
-              duration: totalDuration,
-              issues: allIssues,
-              error: agentError,
-            };
-
+            context.issues.push(...agentResult.issues);
             context.results.push(agentResult);
 
             return agentResult;
@@ -300,10 +316,8 @@ export function createExecuteAgentsStage(): Stage {
             }
 
             const agentResult: AgentResult = {
-              agentId: agent.id,
-              agentName: agent.name,
+              agent: agent.name,
               executor: agent.executor,
-              executorName: 'unknown',
               success: false,
               output: '',
               error: errorMessage,
@@ -329,7 +343,7 @@ export function createExecuteAgentsStage(): Stage {
       let stageError: string | undefined;
       if (failureCount > 0) {
         const errorParts = failedAgents
-          .map((a) => `${a?.agentName || 'Unknown'}: ${a?.error || 'execution failed'}`)
+          .map((a) => `${a?.agent || 'Unknown'}: ${a?.error || 'execution failed'}`)
           .filter(Boolean);
         stageError = errorParts.join('; ');
       }

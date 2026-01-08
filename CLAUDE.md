@@ -43,8 +43,8 @@ Stages (sequential):
 
 **Agents** (`src/defaults/agents/*.md`):
 - Defined in Markdown with YAML frontmatter (ID, Order, Enabled, Executor)
-- Loaded via `src/agents/md-loader.ts`
-- Cached in config, sync with `diffray agents sync`
+- Loaded directly from MD files on each run via `src/agents/md-loader.ts`
+- Sources (priority order): project `.diffray/agents/`, user `~/.diffray/agents/`, defaults
 
 **Executors** (`src/executors.ts`):
 - Types: `llm-api` (HTTP API), `cli` (subprocess)
@@ -69,7 +69,8 @@ Stages (sequential):
 **Rules** (`src/defaults/rules/*.md`):
 - Map glob patterns to agents
 - Contain additional prompts for matched files
-- Loaded via `src/md-loader.ts`
+- Loaded directly from MD files on each run via `src/md-loader.ts`
+- Sources (priority order): project `.diffray/rules/`, user `~/.diffray/rules/`, defaults
 
 ### Data Flow
 ```
@@ -112,8 +113,8 @@ interface Issue {
   - `--verbose` - Show raw JSON stream
   - `--skip-validation` - Skip validation stage
   - Without `--base`: reviews uncommitted changes, or last commit if clean
-- `diffray agents sync` - Reload agents from MD files
-- `diffray rules sync` - Reload rules from MD files
+- `diffray agents list/show` - View agents
+- `diffray rules list/show/test` - View and test rules
 - `diffray executors list/enable/disable` - Manage executors
 
 ## Technology
@@ -126,5 +127,6 @@ interface Issue {
 ## Development Notes
 - ES Modules with bundler moduleResolution (no `.js` extensions needed)
 - Markdown frontmatter parsed with custom regex (see `md-loader.ts`)
-- Config stored at `~/.diffray/config.json`
+- Config stored at `~/.diffray/config.json` (executors, stages, validation settings only)
+- Agents and rules are always loaded fresh from MD files (no caching)
 - Agents reference prompts via `../prompts/output-format.md` in their systemPrompt

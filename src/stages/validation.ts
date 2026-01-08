@@ -13,25 +13,25 @@ import type {
   AgentExecutor,
 } from '../types';
 import { parseIssues } from '../issue-parser';
-import { log, Spinner } from '../logger';
+import { log } from '../logger';
 import { executorFactory } from '../executors';
 import { loadConfig } from '../config';
 import { getCached, CACHE_KEYS } from '../cache';
-import { createLimiter } from '../concurrency';
+import {
+  chunk,
+  executeBatches,
+  withSpinner,
+  aggregateErrors,
+  allSucceeded,
+  getFailures,
+  type BatchResult,
+} from '../batch-executor';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
 
 // ============ Batching Configuration ============
 
 const VALIDATION_BATCH_SIZE = 15; // Issues per batch
-
-function chunk<T>(array: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let i = 0; i < array.length; i += size) {
-    chunks.push(array.slice(i, i + size));
-  }
-  return chunks;
-}
 
 // ============ Validation Prompt (using unified cache) ============
 
@@ -49,6 +49,151 @@ async function loadValidationPrompt(): Promise<string> {
     } catch {
       return DEFAULT_VALIDATION_PROMPT;
     }
+  });
+}
+
+// ============ Helper Functions ============
+
+/**
+ * Select executor for validation from config or first enabled
+ */
+async function selectExecutor(
+  context: PipelineContext
+): Promise<AgentExecutor | null> {
+  const config = await loadConfig();
+  const executors = executorFactory.listExecutors();
+
+  let executor: AgentExecutor | undefined;
+
+  // Check if specific executor is configured for validation
+  if (config.validation?.executor) {
+    executor = executors.find((e) => e.name === config.validation.executor && e.enabled);
+    if (!executor) {
+      if (!context.quiet) {
+        log.warn(
+          `Configured validation executor '${config.validation.executor}' not found or disabled, using default`
+        );
+      }
+    }
+  }
+
+  // Fall back to first enabled executor
+  if (!executor) {
+    executor = executors.find((e) => e.enabled);
+  }
+
+  if (!executor) {
+    if (!context.quiet) {
+      log.warn('No enabled executor found for validation, skipping validation');
+    }
+    return null;
+  }
+
+  // Apply model override if configured (only for executors that support it)
+  if (config.validation?.model && (executor.type === 'llm-api' || executor.type === 'cli')) {
+    return { ...executor, model: config.validation.model };
+  }
+
+  return executor;
+}
+
+/**
+ * Execute validation for a single batch of issues
+ */
+async function executeValidationBatch(
+  batch: Issue[],
+  batchIdx: number,
+  totalBatches: number,
+  executor: AgentExecutor,
+  validationPrompt: string,
+  context: PipelineContext
+): Promise<BatchResult<Issue[]>> {
+  // Convert batch to JSON
+  const issuesJson = JSON.stringify(batch, null, 2);
+
+  // Create a dummy Agent for validation
+  const validationAgent: Agent = {
+    name: 'validation-agent',
+    description: 'Validates issues found by other agents',
+    systemPrompt: validationPrompt,
+    enabled: true,
+    order: 999,
+    executor: executor.name,
+  };
+
+  // Create execution context
+  const execContext: ExecutionContext = {
+    agent: validationAgent,
+    executor: executor,
+    input: issuesJson,
+    systemPrompt: validationPrompt,
+    verbose: context.verbose,
+    quiet: context.quiet,
+  };
+
+  // Show verbose info before execution
+  if (context.verbose && !context.quiet) {
+    const needsBatching = totalBatches > 1;
+    log.plain(
+      `\nValidation prompt${needsBatching ? ` (batch ${batchIdx + 1}/${totalBatches})` : ''}:`
+    );
+    log.plain(`   Executor: ${executor.name}`);
+    log.plain(`   Issues to validate: ${batch.length}`);
+    log.plain('─'.repeat(80));
+    log.plain(`${validationPrompt}\n\n# Input:\n<issues JSON ${issuesJson.length} chars>`);
+    log.plain('─'.repeat(80));
+    log.newline();
+  }
+
+  return withSpinner(
+    {
+      label: 'Validating',
+      batchIndex: batchIdx,
+      totalBatches,
+      itemCount: batch.length,
+    },
+    context.quiet ?? false,
+    async () => {
+      const result = await executorFactory.executeAgent(execContext);
+
+      if (!result.success) {
+        return { success: false, data: [], error: result.error };
+      }
+
+      // Parse validated issues from this batch (no agent override, preserve original)
+      const batchValidatedIssues = parseIssues(result.output);
+      return { success: true, data: batchValidatedIssues };
+    },
+    (issues, duration) =>
+      totalBatches > 1
+        ? `Validated batch ${batchIdx + 1}/${totalBatches} (${issues.length} valid, ${duration}ms)`
+        : `Validated ${issues.length} issue(s) (${duration}ms)`,
+    (error) =>
+      totalBatches > 1
+        ? `Validation failed (batch ${batchIdx + 1}): ${error}`
+        : `Validation failed: ${error}`
+  );
+}
+
+/**
+ * Filter context.results to keep only issues that validator confirmed as valid.
+ * Uses file:lineStart:lineEnd as key since agent field may not be preserved by parseIssues.
+ */
+function filterByValidated(
+  results: { issues: Issue[] }[],
+  validatedIssues: Issue[]
+): void {
+  const validatedIssueSet = new Set(
+    validatedIssues.map(
+      (issue) => `${issue.file}:${issue.lineStart}:${issue.lineEnd}`
+    )
+  );
+
+  results.forEach((result) => {
+    result.issues = result.issues.filter((issue) => {
+      const key = `${issue.file}:${issue.lineStart}:${issue.lineEnd}`;
+      return validatedIssueSet.has(key);
+    });
   });
 }
 
@@ -97,45 +242,15 @@ export function createValidationStage(): Stage {
         };
       }
 
-      // Get executor from config or use first enabled
-      const config = await loadConfig();
-      const executors = executorFactory.listExecutors();
-
-      let executor: AgentExecutor | undefined;
-
-      // Check if specific executor is configured for validation
-      if (config.validation?.executor) {
-        executor = executors.find((e) => e.name === config.validation.executor && e.enabled);
-        if (!executor) {
-          if (!context.quiet) {
-            log.warn(
-              `Configured validation executor '${config.validation.executor}' not found or disabled, using default`
-            );
-          }
-        }
-      }
-
-      // Fall back to first enabled executor
-      if (!executor) {
-        executor = executors.find((e) => e.enabled);
-      }
-
-      if (!executor) {
-        if (!context.quiet) {
-          log.warn('No enabled executor found for validation, skipping validation');
-        }
+      // Select executor for validation
+      const finalExecutor = await selectExecutor(context);
+      if (!finalExecutor) {
         return {
           stageId: 'validation',
           stageName: 'Validation',
           success: true,
           duration: Date.now() - startTime,
         };
-      }
-
-      // Apply model override if configured (only for executors that support it)
-      let finalExecutor: AgentExecutor = executor;
-      if (config.validation?.model && (executor.type === 'llm-api' || executor.type === 'cli')) {
-        finalExecutor = { ...executor, model: config.validation.model };
       }
 
       // Load validation prompt from file
@@ -162,122 +277,38 @@ export function createValidationStage(): Stage {
         }
       }
 
-      // Create concurrency limiter
-      const limit = createLimiter(context.concurrency);
-
       try {
         // Validate all batches in parallel with concurrency limit
-        const batchResults = await Promise.all(
-          batches.map((batch, batchIdx) =>
-            limit(async () => {
-              const batchSpinner: Spinner | null = context.quiet
-                ? null
-                : new Spinner(
-                    needsBatching
-                      ? `Validating batch ${batchIdx + 1}/${batches.length} (${batch.length} issues)...`
-                      : `Validating ${batch.length} issue(s)...`
-                  );
-
-              try {
-                batchSpinner?.start();
-
-                // Convert batch to JSON
-                const issuesJson = JSON.stringify(batch, null, 2);
-
-                // Create a dummy Agent for validation
-                const validationAgent: Agent = {
-                  id: 'validation-agent',
-                  name: 'Validation Agent',
-                  description: 'Validates issues found by other agents',
-                  systemPrompt: validationPrompt,
-                  enabled: true,
-                  order: 999,
-                  executor: finalExecutor.id,
-                };
-
-                // Create execution context
-                const execContext: ExecutionContext = {
-                  agent: validationAgent,
-                  executor: finalExecutor,
-                  input: issuesJson,
-                  systemPrompt: validationPrompt,
-                  verbose: context.verbose,
-                  quiet: context.quiet,
-                };
-
-                if (context.verbose && !context.quiet) {
-                  log.plain(
-                    `\nValidation prompt${needsBatching ? ` (batch ${batchIdx + 1}/${batches.length})` : ''}:`
-                  );
-                  log.plain(`   Executor: ${finalExecutor.name}`);
-                  log.plain(`   Issues to validate: ${batch.length}`);
-                  log.plain('─'.repeat(80));
-                  log.plain(`${validationPrompt}\n\n# Input:\n<issues JSON ${issuesJson.length} chars>`);
-                  log.plain('─'.repeat(80));
-                  log.newline();
-                }
-
-                // Execute validation for this batch
-                const result = await executorFactory.executeAgent(execContext);
-
-                if (!result.success) {
-                  batchSpinner?.fail(
-                    `Validation failed${needsBatching ? ` (batch ${batchIdx + 1})` : ''}: ${result.error}`
-                  );
-                  return { success: false, issues: [], error: result.error };
-                }
-
-                // Parse validated issues from this batch (no agent override, preserve original)
-                const batchValidatedIssues = parseIssues(result.output);
-
-                batchSpinner?.succeed(
-                  needsBatching
-                    ? `Validated batch ${batchIdx + 1}/${batches.length} (${batchValidatedIssues.length} valid)`
-                    : `Validated ${batchValidatedIssues.length} issue(s)`
-                );
-
-                return { success: true, issues: batchValidatedIssues, error: undefined };
-              } catch (error) {
-                const errorMessage = error instanceof Error ? error.message : String(error);
-                batchSpinner?.fail(`Validation error (batch ${batchIdx + 1}): ${errorMessage}`);
-                return { success: false, issues: [], error: errorMessage };
-              } finally {
-                batchSpinner?.stop();
-              }
-            })
-          )
+        const batchResults = await executeBatches(
+          batches,
+          (batch, batchIdx, totalBatches) =>
+            executeValidationBatch(
+              batch,
+              batchIdx,
+              totalBatches,
+              finalExecutor,
+              validationPrompt,
+              context
+            ),
+          { concurrency: context.concurrency, quiet: context.quiet }
         );
 
         // Check for failures
-        const failures = batchResults.filter((r) => !r.success);
-        if (failures.length > 0) {
-          const errorMessages = failures.map((f) => f.error).filter(Boolean);
+        if (!allSucceeded(batchResults)) {
+          const failures = getFailures(batchResults);
+          const stageError = aggregateErrors(failures.map((f) => f.error));
           return {
             stageId: 'validation',
             stageName: 'Validation',
             success: false,
             duration: Date.now() - startTime,
-            error: errorMessages.join('; '),
+            error: stageError,
           };
         }
 
-        // Merge all validated issues
-        const validatedIssues = batchResults.flatMap((r) => r.issues);
-
-        // Update results with validated issues
-        // Note: agent excluded from key because parseIssues may not preserve it
-        const validatedIssueSet = new Set(
-          validatedIssues.map(
-            (issue) => `${issue.file}:${issue.lineStart}:${issue.lineEnd}`
-          )
-        );
-
-        context.results.forEach((result) => {
-          result.issues = result.issues.filter((issue) => {
-            const key = `${issue.file}:${issue.lineStart}:${issue.lineEnd}`;
-            return validatedIssueSet.has(key);
-          });
-        });
+        // Merge all validated issues and filter context.results
+        const validatedIssues = batchResults.flatMap((r) => r.data);
+        filterByValidated(context.results, validatedIssues);
 
         const validCount = validatedIssues.length;
         const invalidCount = allIssues.length - validCount;

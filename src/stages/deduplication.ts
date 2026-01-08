@@ -14,12 +14,15 @@ export function createDeduplicationStage(): Stage {
     order: 4,
     execute: async (context: PipelineContext): Promise<StageResult> => {
       const startTime = Date.now();
-      const beforeResults = context.results.length;
 
-      // Step 1: Deduplicate results by agentId:executor
+      // Step 1: Merge all issues from all results
+      const allIssues = context.results.flatMap((result) => result.issues);
+      const totalBefore = allIssues.length;
+
+      // Step 2: Deduplicate by agent+location (different agents can report different issues at same location)
       const seen = new Set<string>();
-      context.results = context.results.filter((result) => {
-        const key = `${result.agentId}:${result.executor}`;
+      const deduplicated = allIssues.filter((issue) => {
+        const key = `${issue.agent}:${issue.file}:${issue.lineStart}:${issue.lineEnd}`;
         if (seen.has(key)) {
           return false;
         }
@@ -27,35 +30,11 @@ export function createDeduplicationStage(): Stage {
         return true;
       });
 
-      const removedResults = beforeResults - context.results.length;
-      if (removedResults > 0 && !context.quiet) {
-        log.sync(`Removed ${removedResults} duplicate result(s)`);
-      }
+      context.issues = deduplicated;
 
-      // Step 2: Deduplicate issues within each result by file:lineStart:lineEnd
-      let totalIssuesBefore = 0;
-      let totalIssuesAfter = 0;
-
-      context.results.forEach((result) => {
-        const issuesBefore = result.issues.length;
-        totalIssuesBefore += issuesBefore;
-
-        const seenIssues = new Set<string>();
-        result.issues = result.issues.filter((issue) => {
-          const issueKey = `${issue.file}:${issue.lineStart}:${issue.lineEnd}`;
-          if (seenIssues.has(issueKey)) {
-            return false;
-          }
-          seenIssues.add(issueKey);
-          return true;
-        });
-
-        totalIssuesAfter += result.issues.length;
-      });
-
-      const removedIssues = totalIssuesBefore - totalIssuesAfter;
-      if (removedIssues > 0 && !context.quiet) {
-        log.sync(`Removed ${removedIssues} duplicate issue(s)`);
+      const removed = totalBefore - deduplicated.length;
+      if (removed > 0 && !context.quiet) {
+        log.sync(`Removed ${removed} duplicate issue(s)`);
       }
 
       return {

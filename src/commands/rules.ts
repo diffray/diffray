@@ -1,8 +1,8 @@
 /**
- * MD-only rules management - rules are defined in markdown files and synced to config cache
+ * Rules management - rules are defined in markdown files
  */
 
-import { loadRuleRefs, syncRulesToConfig, matchPattern } from '../rules.js';
+import { loadRuleRefs, matchPattern } from '../rules.js';
 import { log } from '../logger';
 
 /**
@@ -205,17 +205,3 @@ export async function testRule(ruleName: string, files: string[]): Promise<void>
   }
 }
 
-/**
- * Sync rules from MD files to config cache
- */
-export async function syncRules(): Promise<void> {
-  log.sync('Syncing rules from MD files...');
-
-  try {
-    await syncRulesToConfig(process.cwd());
-    log.success('Rules synced successfully');
-  } catch (error) {
-    log.error(`Failed to sync rules: ${error}`);
-    process.exit(1);
-  }
-}

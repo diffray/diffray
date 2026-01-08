@@ -73,7 +73,6 @@ describe('Executors', () => {
       const originalEnabled = executor?.enabled;
 
       registerExecutor({
-        id: 'test-cli',
         name: 'test-cli',
         description: 'Test',
         type: 'cli',
@@ -85,7 +84,6 @@ describe('Executors', () => {
 
       // Restore original state
       registerExecutor({
-        id: 'test-cli',
         name: 'test-cli',
         description: 'Test',
         type: 'cli',
@@ -109,7 +107,6 @@ describe('Executors', () => {
 
       expect(Array.isArray(executors)).toBe(true);
       for (const executor of executors) {
-        expect(executor.id).toBeDefined();
         expect(executor.name).toBeDefined();
         expect(executor.type).toBeDefined();
       }
@@ -121,7 +118,6 @@ describe('Executors', () => {
       const executor = getExecutor('cerebras-api');
       const info = executor?.getInfo() as LLMAPIAgentExecutor;
 
-      expect(info?.id).toBe('cerebras-api');
       expect(info?.name).toBe('cerebras-api');
       expect(info?.type).toBe('llm-api');
       expect(info?.model).toBe('llama-3.3-70b');
@@ -132,7 +128,6 @@ describe('Executors', () => {
       const executor = getExecutor('claude-cli');
       const info = executor?.getInfo() as CLIAgentExecutor;
 
-      expect(info?.id).toBe('claude-cli');
       expect(info?.name).toBe('claude-cli');
       expect(info?.type).toBe('cli');
       expect(info?.model).toBe('sonnet');
@@ -143,7 +138,6 @@ describe('Executors', () => {
       const executor = getExecutor('test-cli');
       const info = executor?.getInfo() as CLIAgentExecutor;
 
-      expect(info?.id).toBe('test-cli');
       expect(info?.name).toBe('test-cli');
       expect(info?.type).toBe('cli');
       expect(info?.timeout).toBe(10);
@@ -153,8 +147,7 @@ describe('Executors', () => {
   describe('executeAgent with test-cli', () => {
     const createTestContext = (): ExecutionContext => {
       const agent: Agent = {
-        id: 'test-agent',
-        name: 'Test Agent',
+        name: 'test-agent',
         description: 'Test agent',
         systemPrompt: 'You are a test agent',
         enabled: true,
@@ -163,7 +156,6 @@ describe('Executors', () => {
       };
 
       const executor: AgentExecutor = {
-        id: 'test-cli',
         name: 'test-cli',
         description: 'Test executor',
         type: 'cli',
@@ -185,8 +177,7 @@ describe('Executors', () => {
       const result = await executeAgent(ctx);
 
       expect(result.success).toBe(true);
-      expect(result.agentId).toBe('test-agent');
-      expect(result.agentName).toBe('Test Agent');
+      expect(result.agent).toBe('test-agent');
       expect(result.executor).toBe('test-cli');
       expect(result.output.trim()).toBe('[]');
       expect(result.duration).toBeGreaterThan(0);

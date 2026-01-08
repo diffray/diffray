@@ -1,54 +1,18 @@
 import type { Agent } from './types';
 import { loadAgentsFromDirectory } from './agents/md-loader.js';
 import { loadWithPriority } from './md-loader.js';
-import { loadConfig, updateConfig, getAgents } from './config.js';
 import { log } from './logger.js';
 
 /**
- * Load agents from all sources with priority merge and cache them in config
+ * Load agents from all sources with priority merge
  *
- * Caching strategy:
- * - Agents are cached in the global config file
- * - When cache is empty or undefined, agents are synced from MD files
- * - Subsequent calls return cached agents for performance
- * - Cache can be refreshed by calling syncAgentsToConfig()
+ * Loads agents from all sources (defaults, user, project) with priority merge.
+ * This function always loads from MD files without caching.
  *
  * @param projectPath - Path to project root (defaults to process.cwd())
- * @returns Merged agents array from cache or MD sources
+ * @returns Merged agents array from MD sources
  */
 export async function loadAgents(projectPath?: string): Promise<Agent[]> {
-  const config = await loadConfig();
-
-  // If cache is empty, sync from MD sources (returns synced agents directly)
-  if (!config.agents || config.agents.length === 0) {
-    return syncAgentsToConfig(projectPath);
-  }
-
-  return getAgents(config);
-}
-
-/**
- * Sync agents from MD sources to config cache
- *
- * Loads agents from all sources (defaults, user, project) with priority merge
- * and saves them to the config cache for fast subsequent access.
- *
- * @param projectPath - Path to project root (defaults to process.cwd())
- * @returns Synced agents array
- */
-export async function syncAgentsToConfig(projectPath?: string): Promise<Agent[]> {
   const resolvedProjectPath = projectPath || process.cwd();
-
-  // Load from all sources with priority merge
-  const mergedAgents = await loadWithPriority<Agent>(
-    'agents',
-    loadAgentsFromDirectory,
-    resolvedProjectPath
-  );
-
-  // Save to config cache
-  await updateConfig({ agents: mergedAgents });
-
-  log.info(`Synced ${mergedAgents.length} agents to config cache`);
-  return mergedAgents;
+  return loadWithPriority<Agent>('agents', loadAgentsFromDirectory, resolvedProjectPath);
 }

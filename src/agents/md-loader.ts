@@ -8,10 +8,9 @@ import {
 import { log } from '../logger.js';
 
 function buildAgent(frontmatter: Frontmatter, body: string): Agent | null {
-  const id = frontmatter.id;
   const name = frontmatter.name;
 
-  if (typeof id !== 'string' || typeof name !== 'string') {
+  if (typeof name !== 'string') {
     return null;
   }
 
@@ -21,7 +20,6 @@ function buildAgent(frontmatter: Frontmatter, body: string): Agent | null {
   }
 
   const agent: Agent = {
-    id,
     name,
     description: typeof frontmatter.description === 'string' ? frontmatter.description : '',
     systemPrompt,

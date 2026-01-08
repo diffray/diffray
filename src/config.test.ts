@@ -8,9 +8,8 @@ describe('Config', () => {
     expect(config.excludePatterns).toEqual(['*.lock', '*.min.js', 'dist/*', 'node_modules/**']);
     expect(config.output.colorize).toBe(true);
     expect(config.output.format).toBe('terminal');
-    expect(config.agents).toEqual([]);
     expect(config.executors).toEqual([]);
-    expect(config.rules).toEqual([]);
+    expect(config.stages).toEqual([]);
   });
 
   test('should validate config schema', () => {
@@ -21,8 +20,6 @@ describe('Config', () => {
         verbose: true,
         format: 'json' as const,
       },
-      agents: [],
-      rules: [],
       executors: [],
     };
 
