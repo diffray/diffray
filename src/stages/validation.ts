@@ -111,6 +111,20 @@ async function executeValidationBatch(
   // Convert batch to JSON
   const issuesJson = JSON.stringify(batch, null, 2);
 
+  // Build repository context (same as execute-agents stage)
+  const repoPath = context.metadata.repository;
+  const repoContext = [
+    `# Repository Context`,
+    `Base path: ${repoPath}`,
+    `All file paths below are relative to this directory.`,
+    `When using tools to read files, prepend this base path to get absolute paths.`,
+    context.metadata.baseRef ? `Base ref: ${context.metadata.baseRef}` : null,
+    context.metadata.headRef ? `Head ref: ${context.metadata.headRef}` : null,
+  ].filter(Boolean).join('\n');
+
+  // Combine repository context with issues JSON
+  const inputWithContext = `${repoContext}\n\n# Issues to validate:\n${issuesJson}`;
+
   // Create a dummy Agent for validation
   const validationAgent: Agent = {
     name: 'validation-agent',
@@ -125,10 +139,11 @@ async function executeValidationBatch(
   const execContext: ExecutionContext = {
     agent: validationAgent,
     executor: executor,
-    input: issuesJson,
+    input: inputWithContext,
     systemPrompt: validationPrompt,
     verbose: context.verbose,
     quiet: context.quiet,
+    cwd: repoPath,
   };
 
   // Show verbose info before execution
@@ -140,7 +155,7 @@ async function executeValidationBatch(
     log.plain(`   Executor: ${executor.name}`);
     log.plain(`   Issues to validate: ${batch.length}`);
     log.plain('─'.repeat(80));
-    log.plain(`${validationPrompt}\n\n# Input:\n<issues JSON ${issuesJson.length} chars>`);
+    log.plain(`${validationPrompt}\n\n# Input:\n${repoContext}\n\n# Issues to validate:\n<issues JSON ${issuesJson.length} chars>`);
     log.plain('─'.repeat(80));
     log.newline();
   }
