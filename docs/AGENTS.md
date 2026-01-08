@@ -2,341 +2,187 @@
 
 ## Overview
 
-Diffray agents can now be defined using simple Markdown files, making them easy to read, write, and maintain. This approach is inspired by Claude's sub-agent system and provides a clean, declarative way to configure your code review agents.
-
-Instead of writing configuration in JSON or code, you can create agents using markdown files with a straightforward structure that includes metadata, descriptions, and system prompts.
-
-## Why Agents?
-
-The agent-based architecture provides two key benefits:
-
-### Focused Analysis
-Each agent is a specialist with a single responsibility. A security agent only looks for vulnerabilities. A bug hunter only searches for logic errors. This focus leads to higher quality findings because the agent isn't trying to do everything at once.
-
-### Clean Context
-Every agent starts with a fresh context containing only what it needs:
-- Its specialized system prompt
-- The code diffs relevant to its domain
-- The rules that define what to look for
-
-No noise from unrelated checks. No confusion from mixed responsibilities. The agent sees only what matters for its task, which dramatically improves accuracy and reduces false positives.
-
-This is similar to how human code reviewers work best when they focus on one aspect at a time rather than trying to catch every possible issue in a single pass.
+Diffray agents are defined using simple Markdown files. Each agent is a specialist with a focused responsibility - a security agent looks for vulnerabilities, a bug hunter searches for logic errors.
 
 ## File Format
 
-Each agent is defined in a separate `.md` file with the following structure:
+Each agent is defined in a `.md` file with YAML frontmatter:
 
 ```markdown
-# Agent: Your Agent Name
-
 ---
-ID: your-agent-id
-Order: 1
-Enabled: true
-Executor: claude-cli
+name: bug-hunter
+description: Detects bugs, logic errors and runtime issues
+enabled: true
+executor: claude-cli
 ---
 
-## Description
+You are a bug detection specialist focused on identifying logic errors.
 
-A clear description of what this agent does and when it should be used.
-
-## System Prompt
-
-The instructions that define the agent's behavior and focus areas.
-
-### Focus Area 1
-- Specific points about this focus area
-- Additional details
-
-### Focus Area 2
-- More specifics
-- Guidelines
-
-### Output Format
-Reference ../output-format.md for expected JSON structure.
+### Focus Areas
+- Null/undefined safety
+- Logic errors and incorrect conditionals
+- Edge cases and boundary conditions
 ```
+
+**That's it!** The body after frontmatter becomes the agent's system prompt.
 
 ## Field Reference
 
 ### Required Fields
 
-**ID** (required)
-- Unique identifier for the agent
-- Use lowercase with dashes (e.g., `bug-hunter`, `security-scan`)
-- Must be unique across all agents
-
-**Agent Name** (required)
-- Extracted from the first line: `# Agent: Name`
-- Human-readable display name
-- Used in reports and logs
+| Field | Description |
+|-------|-------------|
+| `name` | Unique identifier (lowercase with dashes: `bug-hunter`) |
+| `description` | Short description of what the agent does |
+| `executor` | Which executor runs this agent (`claude-cli`, `cerebras-api`) |
 
 ### Optional Fields
 
-**Order** (optional, default: 0)
-- Number that determines execution order
-- Lower numbers run first
-- Agents with same order may run in any sequence
+| Field | Default | Description |
+|-------|---------|-------------|
+| `enabled` | `true` | Whether the agent is active |
+| `order` | `0` | Execution order (lower runs first) |
 
-**Enabled** (optional, default: true)
-- Boolean flag (`true` or `false`)
-- Disabled agents are not executed
-- Useful for temporarily turning off agents
+## File Locations
 
-**Executor** (optional, default: 'test-cli')
-- ID of the executor that will run this agent
-- Examples: `claude-cli`, `openai-api`, `cerebras-api`
-- Must match an available executor
+Agents are loaded from three locations (in priority order):
 
-### Sections
+1. **User agents**: `~/.diffray/agents/*.md`
+2. **Project agents**: `.diffray/agents/*.md`
+3. **Built-in agents**: `src/defaults/agents/*.md`
 
-**Description**
-- Explain what the agent does
-- Keep it concise (1-2 sentences)
-- Helps users understand the agent's purpose
-
-**System Prompt**
-- The core instructions for the agent
-- Define focus areas, analysis approach, and output expectations
-- Can use `###` subsections for organization
-- Should reference `../output-format.md` for structured output
-
-## File Location
-
-### Default Agents
-Default agents are located in:
-```
-src/defaults/agents/*.md
-```
-
-These agents are loaded automatically and can be used as examples.
-
-### Custom Agents
-You can add custom agents to the same directory. The system will load all `.md` files and sort them by order.
-
-### One Agent Per File
-Each `.md` file should contain exactly one agent definition. Use descriptive filenames like `bug-hunter.md`, `security-scan.md`.
+Higher priority sources override lower ones with the same name.
 
 ## Creating Custom Agents
 
-Follow these steps to create a custom agent:
+### 1. Create the file
 
-### 1. Copy the Template
-Start with the `EXAMPLE.md` template in `src/defaults/agents/`:
 ```bash
-cp src/defaults/agents/EXAMPLE.md src/defaults/agents/my-agent.md
+# User-level agent (applies to all projects)
+mkdir -p ~/.diffray/agents
+touch ~/.diffray/agents/my-agent.md
+
+# Or project-level agent
+mkdir -p .diffray/agents
+touch .diffray/agents/my-agent.md
 ```
 
-### 2. Set Unique ID
-Choose a unique ID that describes your agent:
+### 2. Add frontmatter and prompt
+
 ```markdown
-ID: typescript-checker
-```
+---
+name: typescript-checker
+description: Analyzes TypeScript code for type safety issues
+enabled: true
+executor: claude-cli
+---
 
-### 3. Write Description
-Clearly explain what your agent does:
-```markdown
-## Description
-
-Analyzes TypeScript code for type safety issues and best practices.
-```
-
-### 4. Write System Prompt
-Define the agent's instructions and focus areas:
-```markdown
-## System Prompt
-
-You are a TypeScript expert specializing in type safety and modern TypeScript patterns.
+You are a TypeScript expert specializing in type safety.
 
 ### Focus Areas
 - Type inference issues
 - Missing type annotations
 - Use of `any` type
 - Generic type usage
+
+### Instructions
+- Only report actual type safety issues
+- Be concise and actionable
 ```
 
-### 5. Configure Executor and Order
-Set which executor to use and when to run:
-```markdown
-Order: 5
-Executor: claude-cli
+### 3. Verify
+
+```bash
+diffray agents list
 ```
-
-### 6. Enable or Disable
-Control whether the agent runs:
-```markdown
-Enabled: true
-```
-
-## Using Subsections in System Prompt
-
-You can organize your system prompt using `###` subsections. These subsections help structure the agent's instructions and make them easier to read:
-
-```markdown
-## System Prompt
-
-You are a security expert analyzing code for vulnerabilities.
-
-### Authentication & Authorization
-- Check for proper authentication mechanisms
-- Verify authorization checks
-- Look for session management issues
-
-### Input Validation
-- Identify missing input validation
-- Check for SQL injection risks
-- Look for XSS vulnerabilities
-
-### Output Format
-Return findings as JSON array per ../output-format.md
-```
-
-The parser will include all subsections as part of the system prompt.
 
 ## Examples
 
-### Example 1: Bug Hunter Agent
+### Bug Hunter
 
 ```markdown
-# Agent: Bug Hunter
-
 ---
-ID: bug-hunter
-Order: 1
-Enabled: true
-Executor: claude-cli
+name: bug-hunter
+description: Detects bugs, logic errors and runtime issues
+enabled: true
+executor: claude-cli
 ---
-
-## Description
-
-Detects bugs, logic errors and runtime issues that will cause code to fail or behave incorrectly.
-
-## System Prompt
 
 You are a bug detection specialist focused on identifying logic errors and runtime issues.
 
-### Focus Areas
-- Null/undefined safety and potential NPE
-- Logic errors and incorrect conditionals
-- Edge cases and boundary conditions
-- Async/concurrency issues
+**Focus Areas**:
+- **Null/Undefined Safety**: Missing null checks, potential NPE
+- **Logic Errors**: Incorrect conditionals, wrong operators, off-by-one errors
+- **Edge Cases**: Empty arrays, boundary conditions
+- **Async/Concurrency**: Race conditions, unhandled promise rejections
 
-### Output Format
-Reference ../output-format.md for JSON structure.
+**Instructions**:
+- ONLY report issues likely to cause runtime errors
+- Focus on "will this crash or produce wrong results?"
+- Provide evidence: what input will break it?
 ```
 
-### Example 2: Security Scanner
+### Security Scanner
 
 ```markdown
-# Agent: Security Scanner
-
 ---
-ID: security-scan
-Order: 2
-Enabled: false
-Executor: test-cli
+name: security-scan
+description: Scans for security vulnerabilities
+enabled: true
+executor: claude-cli
 ---
 
-## Description
+You are a security engineer performing focused security audits.
 
-Scans code for security vulnerabilities and potential security risks.
+**Focus Areas**:
+- **Injection Attacks**: SQL, XSS, command injection
+- **Authentication**: bypass, privilege escalation
+- **Secrets**: hardcoded credentials, key exposure
+- **Data Protection**: sensitive data exposure, PII leakage
 
-## System Prompt
-
-You are a security expert identifying vulnerabilities in code.
-
-### Authentication
-- Verify proper auth mechanisms
-- Check for auth bypasses
-- Review session management
-
-### Injection Vulnerabilities
-- SQL injection risks
-- XSS vulnerabilities
-- Command injection
-
-### Output Format
-Structure findings per ../output-format.md
+**Quality Standards**:
+- Only flag issues with high confidence of actual exploitability
+- Every finding must have a concrete attack path
 ```
 
 ## Best Practices
 
-### Clear and Specific Prompts
-- Be specific about what the agent should focus on
-- Avoid vague instructions like "check for problems"
-- Use concrete examples when helpful
-
-### Well-Defined Focus Areas
-- Break down the agent's responsibilities into clear focus areas
-- Use subsections to organize related checks
-- Keep each focus area manageable
-
-### Reference Output Format
-- Always reference `../output-format.md` in your system prompt
-- This ensures consistent JSON output across all agents
-- Helps agents understand expected structure
-
 ### One Responsibility Per Agent
-- Each agent should have a clear, focused purpose
-- Don't create "do everything" agents
-- Multiple specialized agents work better than one generalist
+Each agent should have a clear, focused purpose. Multiple specialized agents work better than one generalist.
 
-### Use Appropriate Executors
-- Choose executors based on the agent's requirements
-- Consider cost, speed, and capability trade-offs
-- Test with different executors to find the best fit
+### Clear Instructions
+Be specific about what the agent should focus on. Avoid vague instructions like "check for problems".
 
-### Order Agents Strategically
-- Run cheaper/faster agents first to catch obvious issues
-- Save expensive/comprehensive agents for later
-- Consider dependencies between agents
+### Test Before Enabling
+Start with `enabled: false` while testing. Enable only when ready.
 
-### Test Your Agents
-- Start with `Enabled: false` while testing
-- Verify output format matches expectations
-- Adjust prompts based on results
-- Enable only when ready for production use
+### Order Strategically
+Run faster/cheaper agents first. Consider dependencies between agents.
 
-## Loading Process
+## Managing Agents
 
-The system loads agents in this order:
+```bash
+# List all agents
+diffray agents list
 
-1. **Scan markdown files**: Reads all `.md` files from `src/defaults/agents/`
-2. **Parse each file**: Extracts metadata, description, and system prompt
-3. **Validate agents**: Ensures required fields are present
-4. **Sort by order**: Orders agents by their `Order` field
-5. **Fallback to hardcoded**: If no markdown agents found, uses hardcoded defaults
-
-This means you can gradually migrate to markdown files or mix both approaches.
+# Show agent details
+diffray agents show bug-hunter
+```
 
 ## Troubleshooting
 
 ### Agent Not Loading
-- Check that the file has `.md` extension
-- Verify the file is in `src/defaults/agents/`
-- Ensure `ID` and name are present
-- Check for syntax errors in frontmatter
+- Check `.md` extension
+- Verify file location (`~/.diffray/agents/`, `.diffray/agents/`, or `src/defaults/agents/`)
+- Check YAML frontmatter syntax
+- Run `diffray agents list` to verify it's being loaded
 
 ### Agent Not Running
-- Verify `Enabled: true` in frontmatter
-- Check that the specified executor exists
-- Review order value (lower runs first)
+- Verify `enabled: true`
+- Check executor exists: `diffray executors list`
+- Review order value
 
 ### Incorrect Output
 - Review system prompt clarity
-- Ensure reference to output-format.md
-- Test with different executors
 - Add more specific focus areas
-
-## Migration from Hardcoded Agents
-
-To migrate existing hardcoded agents to markdown:
-
-1. Create a new `.md` file for each agent
-2. Copy the agent's system prompt to the System Prompt section
-3. Set the same ID, order, and executor
-4. Add a clear description
-5. Test the markdown version
-6. Remove the hardcoded version when ready
-
-The system will automatically prefer markdown agents over hardcoded ones.
+- Test with different executors

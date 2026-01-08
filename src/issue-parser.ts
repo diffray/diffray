@@ -6,36 +6,99 @@ import type { Issue, IssueSeverity, IssueCategory } from './types';
 
 /**
  * Raw issue item from JSON parsing
+ * Supports multiple field name variations that LLMs might return
  */
 interface RawIssueItem {
+  // File path
   file?: string;
+  path?: string;
+
+  // Line numbers
   lineStart?: number;
   lineEnd?: number;
   line?: number;
+  lineNumber?: number;
+
+  // Severity
   severity?: string;
+
+  // Category (may be called "type" by some agents)
   category?: string;
+  type?: string;
+
+  // Short description variations
   shortDescription?: string;
   short?: string;
   message?: string;
+  issue?: string;
+  title?: string;
+  problem?: string;
+
+  // Full description variations
   fullDescription?: string;
   description?: string;
+  evidence?: string;
+  detail?: string;
+  details?: string;
+  explanation?: string;
+
+  // Suggestion variations
   suggestion?: string;
+  fix?: string;
+  recommendation?: string;
+  remediation?: string;
+  solution?: string;
+
   agent?: string;
 }
 
 /**
  * Parse issue item from JSON object
+ * Handles multiple field name variations
  */
 function parseIssueItem(item: RawIssueItem, agent?: string): Issue {
+  const file = item.file || item.path || '';
+  // Use ?? for line numbers to preserve explicit 0 values (which will be filtered out)
+  // Default to 1 only if no line info provided at all
+  const lineStart = item.lineStart ?? item.line ?? item.lineNumber ?? 1;
+  const lineEnd = item.lineEnd ?? item.lineStart ?? item.line ?? item.lineNumber ?? lineStart;
+
+  // Map category from various field names (type is common alternative)
+  const category = item.category || item.type || 'quality';
+
+  // Map short description from various field names
+  const shortDescription =
+    item.shortDescription ||
+    item.short ||
+    item.message ||
+    item.issue ||
+    item.title ||
+    item.problem ||
+    '';
+
+  // Map full description from various field names
+  const fullDescription =
+    item.fullDescription ||
+    item.description ||
+    item.evidence ||
+    item.detail ||
+    item.details ||
+    item.explanation ||
+    shortDescription;
+
+  // Map suggestion from various field names
+  const suggestion =
+    item.suggestion || item.fix || item.recommendation || item.remediation || item.solution;
+
   return {
-    file: item.file || '',
-    lineStart: item.lineStart || item.line || 0,
-    lineEnd: item.lineEnd || item.lineStart || item.line || 0,
+    file,
+    lineStart,
+    lineEnd,
     severity: (item.severity || 'medium') as IssueSeverity,
-    category: (item.category || 'quality') as IssueCategory,
-    shortDescription: item.shortDescription || item.short || item.message || '',
-    fullDescription: item.fullDescription || item.description || item.shortDescription || '',
-    suggestion: item.suggestion,
+    category: category as IssueCategory,
+    shortDescription,
+    fullDescription,
+    suggestion,
     agent: agent ?? item.agent ?? 'unknown',
   };
 }
@@ -112,7 +175,10 @@ export function parseIssues(output: string, agent?: string): Issue[] {
 
     return issues
       .map((item) => parseIssueItem(item, agent))
-      .filter((issue) => issue.file && issue.shortDescription && issue.lineStart > 0);
+      .filter(
+        (issue) =>
+          issue.file && (issue.shortDescription || issue.fullDescription) && issue.lineStart > 0
+      );
   } catch {
     return [];
   }

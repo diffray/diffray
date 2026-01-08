@@ -5,8 +5,7 @@ describe('md-loader', () => {
   describe('parseAgentMarkdown', () => {
     it('should correctly parse a complete agent markdown', () => {
       const markdown = `---
-id: test-agent
-name: Test Agent
+name: test-agent
 description: This is a test agent description.
 order: 1
 enabled: true
@@ -20,8 +19,7 @@ You are a helpful assistant.`;
       expect(result).toHaveLength(1);
       const agent = result[0];
       if (!agent) throw new Error('Expected agent to be defined');
-      expect(agent.id).toBe('test-agent');
-      expect(agent.name).toBe('Test Agent');
+      expect(agent.name).toBe('test-agent');
       expect(agent.enabled).toBe(true);
       expect(agent.executor).toBe('openai');
       expect(agent.description).toBe('This is a test agent description.');
@@ -30,8 +28,7 @@ You are a helpful assistant.`;
 
     it('should use default values for missing optional fields', () => {
       const markdown = `---
-id: minimal-agent
-name: Minimal Agent
+name: minimal-agent
 ---
 
 Minimal prompt.`;
@@ -41,8 +38,7 @@ Minimal prompt.`;
       expect(result).toHaveLength(1);
       const agent = result[0];
       if (!agent) throw new Error('Expected agent to be defined');
-      expect(agent.id).toBe('minimal-agent');
-      expect(agent.name).toBe('Minimal Agent');
+      expect(agent.name).toBe('minimal-agent');
       expect(agent.enabled).toBe(true);
       expect(agent.executor).toBe('test-cli');
       expect(agent.description).toBe('');
@@ -51,8 +47,7 @@ Minimal prompt.`;
 
     it('should handle missing executor field with default', () => {
       const markdown = `---
-id: no-executor
-name: No Executor
+name: no-executor
 description: No executor specified.
 order: 2
 enabled: false
@@ -65,8 +60,7 @@ Test prompt.`;
       expect(result).toHaveLength(1);
       const agent = result[0];
       if (!agent) throw new Error('Expected agent to be defined');
-      expect(agent.id).toBe('no-executor');
-      expect(agent.name).toBe('No Executor');
+      expect(agent.name).toBe('no-executor');
       expect(agent.enabled).toBe(false);
       expect(agent.executor).toBe('test-cli');
       expect(agent.description).toBe('No executor specified.');
@@ -75,8 +69,7 @@ Test prompt.`;
 
     it('should handle missing description field', () => {
       const markdown = `---
-id: no-description
-name: No Description
+name: no-description
 ---
 
 Only system prompt.`;
@@ -86,16 +79,14 @@ Only system prompt.`;
       expect(result).toHaveLength(1);
       const agent = result[0];
       if (!agent) throw new Error('Expected agent to be defined');
-      expect(agent.id).toBe('no-description');
-      expect(agent.name).toBe('No Description');
+      expect(agent.name).toBe('no-description');
       expect(agent.description).toBe('');
       expect(agent.systemPrompt).toBe('Only system prompt.');
     });
 
     it('should handle missing system prompt (body)', () => {
       const markdown = `---
-id: no-system-prompt
-name: No System Prompt
+name: no-system-prompt
 description: Only description.
 ---`;
 
@@ -132,8 +123,7 @@ Test prompt.`;
 
     it('should handle multiline prompts', () => {
       const markdown = `---
-id: multiline-agent
-name: Multiline Agent
+name: multiline-agent
 description: This is a multiline description.
 ---
 
@@ -153,8 +143,7 @@ You should be polite and helpful.`;
 
     it('should handle extra whitespace in body', () => {
       const markdown = `---
-id: whitespace-agent
-name: Whitespace Agent
+name: whitespace-agent
 description: This description has extra whitespace.
 ---
 
@@ -180,21 +169,18 @@ description: This description has extra whitespace.
 
       // Verify each agent has required fields
       for (const agent of agents) {
-        expect(agent).toHaveProperty('id');
         expect(agent).toHaveProperty('name');
         expect(agent).toHaveProperty('enabled');
         expect(agent).toHaveProperty('executor');
         expect(agent).toHaveProperty('description');
         expect(agent).toHaveProperty('systemPrompt');
 
-        expect(typeof agent.id).toBe('string');
         expect(typeof agent.name).toBe('string');
         expect(typeof agent.enabled).toBe('boolean');
         expect(typeof agent.executor).toBe('string');
         expect(typeof agent.description).toBe('string');
         expect(typeof agent.systemPrompt).toBe('string');
 
-        expect(agent.id.length).toBeGreaterThan(0);
         expect(agent.name.length).toBeGreaterThan(0);
         expect(agent.executor.length).toBeGreaterThan(0);
       }

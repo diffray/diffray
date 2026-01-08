@@ -1,6 +1,7 @@
 import * as Diff from 'diff';
 import type { GitDiff } from './types.js';
 import { getCached, invalidateCache, CACHE_KEYS } from './cache';
+import { log } from './logger';
 
 const GIT_TIMEOUT_MS = 30000; // 30 seconds
 
@@ -36,7 +37,8 @@ export async function getCurrentBranch(): Promise<string | null> {
     const result = await runGit(['rev-parse', '--abbrev-ref', 'HEAD']);
     const branch = result.trim();
     return branch === 'HEAD' ? null : branch; // detached HEAD returns null
-  } catch {
+  } catch (e) {
+    log.debug(`getCurrentBranch failed: ${e}`);
     return null;
   }
 }
@@ -102,7 +104,8 @@ export async function hasUncommittedChanges(): Promise<boolean> {
       .split('\n')
       .filter((line) => line && !line.startsWith('??'));
     return lines.length > 0;
-  } catch {
+  } catch (e) {
+    log.debug(`hasUncommittedChanges failed: ${e}`);
     return false;
   }
 }
@@ -155,7 +158,8 @@ export async function isGitRepository(): Promise<boolean> {
   try {
     await runGit(['rev-parse', '--git-dir']);
     return true;
-  } catch {
+  } catch (e) {
+    log.debug(`isGitRepository: not a git repo: ${e}`);
     return false;
   }
 }
@@ -218,7 +222,8 @@ export async function getFileStatus(file: string): Promise<GitDiff['status']> {
     if (entry.index === 'D' || entry.worktree === 'D') return 'deleted';
 
     return 'modified';
-  } catch {
+  } catch (e) {
+    log.debug(`getFileStatus failed for ${file}: ${e}`);
     return 'modified';
   }
 }
@@ -265,8 +270,9 @@ export async function getAllDiffs(): Promise<GitDiff[]> {
           additions,
           deletions,
         };
-      } catch {
+      } catch (e) {
         // Skip files that can't be diffed (e.g., deleted files not yet staged)
+        log.debug(`getAllDiffs: skipping ${file}: ${e}`);
         return null;
       }
     })
@@ -328,7 +334,8 @@ export async function getLastCommitDiffs(): Promise<GitDiff[]> {
             additions,
             deletions,
           } as GitDiff;
-        } catch {
+        } catch (e) {
+          log.debug(`getLastCommitDiffs: skipping ${file}: ${e}`);
           return null;
         }
       })
@@ -378,7 +385,8 @@ export async function getCommitDiffs(
             additions,
             deletions,
           } as GitDiff;
-        } catch {
+        } catch (e) {
+          log.debug(`getCommitDiffs: skipping ${file}: ${e}`);
           return null;
         }
       })

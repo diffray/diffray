@@ -7,7 +7,6 @@ import {
   parseFrontmatter,
   type Frontmatter,
 } from './md-loader';
-import { loadConfig, updateConfig, getRuleRefs } from './config';
 import { log } from './logger';
 
 // ============ Rule Markdown Parsing ============
@@ -67,17 +66,14 @@ export function parseSingleRule(content: string): Rule | null {
 // ============ Rule Loading ============
 
 /**
- * Load rule refs from config (lightweight, no prompts)
+ * Load rule refs from MD files (lightweight, no prompts)
+ *
+ * Loads rule refs from all sources (defaults, user, project) with priority merge.
+ * Prompts are loaded lazily via loadRuleFromRef when needed.
  */
 export async function loadRuleRefs(projectPath?: string): Promise<RuleRef[]> {
-  const config = await loadConfig();
-
-  // If cache is empty, sync from MD files
-  if (!config.rules || config.rules.length === 0) {
-    return syncRulesToConfig(projectPath);
-  }
-
-  return getRuleRefs(config);
+  const resolvedProjectPath = projectPath || process.cwd();
+  return loadRuleRefsWithPriority(resolvedProjectPath);
 }
 
 /**
@@ -107,32 +103,12 @@ export async function loadRuleFromRef(ref: RuleRef): Promise<Rule | null> {
  * Load full rules from refs (batch loading)
  */
 export async function loadRulesFromRefs(refs: RuleRef[]): Promise<Rule[]> {
-  const rules: Rule[] = [];
-  for (const ref of refs) {
-    const rule = await loadRuleFromRef(ref);
-    if (rule) rules.push(rule);
-  }
-  return rules;
+  const results = await Promise.all(refs.map(loadRuleFromRef));
+  return results.filter((rule): rule is Rule => rule !== null);
 }
 
 /**
- * Sync rules from MD files to config cache (stores only refs, not prompts)
- */
-export async function syncRulesToConfig(projectPath?: string): Promise<RuleRef[]> {
-  const resolvedProjectPath = projectPath || process.cwd();
-
-  // Scan all sources and get refs with paths
-  const refs = await loadRuleRefsWithPriority(resolvedProjectPath);
-
-  // Save refs to config (no prompts stored)
-  await updateConfig({ rules: refs });
-
-  log.info(`Synced ${refs.length} rule refs to config cache`);
-  return refs;
-}
-
-/**
- * Legacy: Load full rules (for backwards compatibility)
+ * Load full rules from all sources
  * @deprecated Use loadRuleRefs + loadRulesFromRefs for lazy loading
  */
 export async function loadRules(projectPath?: string): Promise<Rule[]> {
@@ -141,6 +117,34 @@ export async function loadRules(projectPath?: string): Promise<Rule[]> {
 }
 
 // ============ Rule Matching ============
+
+// Internal generic matching function
+function matchItems<T extends { patterns: string[]; agent: string }>(
+  items: T[],
+  diffs: GitDiff[],
+  agents: Agent[]
+): { item: T; files: string[]; agent: Agent }[] {
+  const agentMap = new Map(agents.map((a) => [a.name, a]));
+  const matched: { item: T; files: string[]; agent: Agent }[] = [];
+
+  for (const item of items) {
+    const agent = agentMap.get(item.agent);
+    if (!agent) {
+      log.warn(`Rule references unknown agent "${item.agent}"`);
+      continue;
+    }
+
+    const matchedFiles = diffs
+      .filter((diff) => item.patterns.some((pattern) => matchPattern(diff.file, pattern)))
+      .map((diff) => diff.file);
+
+    if (matchedFiles.length === 0) continue;
+
+    matched.push({ item, files: matchedFiles, agent });
+  }
+
+  return matched;
+}
 
 /**
  * Match rule refs to files (no prompt loading)
@@ -151,23 +155,7 @@ export function matchRuleRefs(
   diffs: GitDiff[],
   agents: Agent[]
 ): { ref: RuleRef; files: string[]; agent: Agent }[] {
-  const agentMap = new Map(agents.map((a) => [a.id, a]));
-  const matched: { ref: RuleRef; files: string[]; agent: Agent }[] = [];
-
-  for (const ref of refs) {
-    const agent = agentMap.get(ref.agent);
-    if (!agent) continue;
-
-    const matchedFiles = diffs
-      .filter((diff) => ref.patterns.some((pattern) => matchPattern(diff.file, pattern)))
-      .map((diff) => diff.file);
-
-    if (matchedFiles.length === 0) continue;
-
-    matched.push({ ref, files: matchedFiles, agent });
-  }
-
-  return matched;
+  return matchItems(refs, diffs, agents).map(({ item, ...rest }) => ({ ref: item, ...rest }));
 }
 
 /**
@@ -182,16 +170,15 @@ export async function matchAndLoadRules(
   // First match by patterns (no file I/O)
   const matchedRefs = matchRuleRefs(refs, diffs, agents);
 
-  // Then load prompts only for matched rules
-  const results: MatchedRule[] = [];
-  for (const { ref, files, agent } of matchedRefs) {
-    const rule = await loadRuleFromRef(ref);
-    if (rule) {
-      results.push({ rule, files, agent });
-    }
-  }
+  // Then load prompts in parallel for matched rules only
+  const loadedRules = await Promise.all(
+    matchedRefs.map(async ({ ref, files, agent }) => {
+      const rule = await loadRuleFromRef(ref);
+      return rule ? { rule, files, agent } : null;
+    })
+  );
 
-  return results;
+  return loadedRules.filter((r): r is MatchedRule => r !== null);
 }
 
 /**
@@ -199,28 +186,7 @@ export async function matchAndLoadRules(
  * @deprecated Use matchAndLoadRules for lazy loading
  */
 export function matchRules(rules: Rule[], diffs: GitDiff[], agents: Agent[]): MatchedRule[] {
-  // Build agent lookup map for O(1) access
-  const agentMap = new Map(agents.map((a) => [a.id, a]));
-  const matched: MatchedRule[] = [];
-
-  for (const rule of rules) {
-    const agent = agentMap.get(rule.agent);
-    if (!agent) continue;
-
-    const matchedFiles = diffs
-      .filter((diff) => rule.patterns.some((pattern) => matchPattern(diff.file, pattern)))
-      .map((diff) => diff.file);
-
-    if (matchedFiles.length === 0) continue;
-
-    matched.push({
-      rule,
-      files: matchedFiles,
-      agent,
-    });
-  }
-
-  return matched;
+  return matchItems(rules, diffs, agents).map(({ item, ...rest }) => ({ rule: item, ...rest }));
 }
 
 // ============ Pattern Matching ============

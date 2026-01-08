@@ -1,6 +1,5 @@
 ---
-id: performance-check
-name: Performance Checker
+name: performance-check
 description: Checks for performance issues
 enabled: true
 executor: claude-cli

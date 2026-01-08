@@ -26,7 +26,7 @@ export class Pipeline {
 
     // Register executors
     for (const executor of executors) {
-      this.executors.set(executor.id, executor);
+      this.executors.set(executor.name, executor);
       executorFactory.registerExecutor(executor);
     }
 
@@ -50,9 +50,9 @@ export class Pipeline {
   /**
    * Remove Agent from pipeline
    */
-  removeAgent(agentId: string): void {
-    this.agents = this.agents.filter((a) => a.id !== agentId);
-    agentRegistry.remove(agentId);
+  removeAgent(name: string): void {
+    this.agents = this.agents.filter((a) => a.name !== name);
+    agentRegistry.remove(name);
   }
 
   /**
@@ -73,7 +73,7 @@ export class Pipeline {
    * Add Executor to pipeline
    */
   addExecutor(executor: AgentExecutor): void {
-    this.executors.set(executor.id, executor);
+    this.executors.set(executor.name, executor);
     executorFactory.registerExecutor(executor);
   }
 
@@ -89,12 +89,26 @@ export class Pipeline {
    */
   async execute(
     diffs: GitDiff[],
-    verbose = false,
-    quiet = false,
-    concurrency = 3,
-    skipValidation = false,
-    stream = false
+    options: {
+      verbose?: boolean;
+      quiet?: boolean;
+      concurrency?: number;
+      skipValidation?: boolean;
+      stream?: boolean;
+      baseRef?: string;
+      headRef?: string;
+    } = {}
   ): Promise<PipelineResult> {
+    const {
+      verbose = false,
+      quiet = false,
+      concurrency = 3,
+      skipValidation = false,
+      stream = false,
+      baseRef,
+      headRef,
+    } = options;
+
     const startTime = Date.now();
 
     // Create context
@@ -105,6 +119,8 @@ export class Pipeline {
       metadata: {
         timestamp: Date.now(),
         repository: process.cwd(),
+        baseRef,
+        headRef,
       },
       verbose,
       quiet,

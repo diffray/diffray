@@ -17,10 +17,8 @@ describe('Validation Stage', () => {
   });
 
   const createAgentResult = (issues: Issue[]): AgentResult => ({
-    agentId: 'test-agent',
-    agentName: 'Test Agent',
+    agent: 'test-agent',
     executor: 'test-cli',
-    executorName: 'Test CLI',
     success: true,
     output: JSON.stringify(issues),
     duration: 100,
@@ -185,9 +183,9 @@ describe('Validation Stage', () => {
       const stage = createValidationStage();
       const context = createContext({
         results: [
-          { ...createAgentResult([]), agentId: 'agent-1' },
-          { ...createAgentResult([]), agentId: 'agent-2' },
-          { ...createAgentResult([]), agentId: 'agent-3' },
+          { ...createAgentResult([]), agent: 'agent-1' },
+          { ...createAgentResult([]), agent: 'agent-2' },
+          { ...createAgentResult([]), agent: 'agent-3' },
         ],
       });
 
@@ -202,8 +200,8 @@ describe('Validation Stage', () => {
       const context = createContext({
         skipValidation: true,
         results: [
-          { ...createAgentResult([createIssue({ agent: 'a1' })]), agentId: 'agent-1' },
-          { ...createAgentResult([createIssue({ agent: 'a2' })]), agentId: 'agent-2' },
+          { ...createAgentResult([createIssue({ agent: 'a1' })]), agent: 'agent-1' },
+          { ...createAgentResult([createIssue({ agent: 'a2' })]), agent: 'agent-2' },
         ],
       });
 

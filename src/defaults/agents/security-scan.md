@@ -1,6 +1,5 @@
 ---
-id: security-scan
-name: Security Scanner
+name: security-scan
 description: Scans for security vulnerabilities
 enabled: true
 executor: claude-cli

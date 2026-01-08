@@ -1,6 +1,5 @@
 ---
-id: bug-hunter
-name: Bug Hunter
+name: bug-hunter
 description: Detects bugs, logic errors and runtime issues
 enabled: true
 executor: claude-cli

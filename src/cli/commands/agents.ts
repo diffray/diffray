@@ -1,5 +1,5 @@
 import { defineCommand } from 'citty';
-import { listAgents, showAgent, syncAgents } from '../../commands/agents.js';
+import { listAgents, showAgent } from '../../commands/agents.js';
 
 export const agentsCmd = defineCommand({
   meta: {
@@ -28,14 +28,6 @@ export const agentsCmd = defineCommand({
       },
       run: ({ args }) => {
         showAgent(args.id!);
-      },
-    },
-    sync: {
-      meta: {
-        description: 'Sync agents from MD files to cache',
-      },
-      run: () => {
-        syncAgents();
       },
     },
   },

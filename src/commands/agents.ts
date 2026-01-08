@@ -1,14 +1,13 @@
 /**
  * Agent management commands
  *
- * Agents are defined in Markdown files and cached in config.json:
+ * Agents are defined in Markdown files:
  * - Agents are defined in src/defaults/agents/*.md files
- * - Sync command refreshes cache from Markdown files
- * - Agents are loaded from cache for performance
+ * - Agents are loaded directly from MD files on each run
  * - Enabled/disabled via frontmatter in Markdown files
  */
 
-import { loadAgents, syncAgentsToConfig } from '../agents.js';
+import { loadAgents } from '../agents.js';
 import { log } from '../logger';
 
 /**
@@ -36,7 +35,6 @@ export async function listAgents(): Promise<void> {
   // Calculate column widths
   const cols = {
     status: 1,
-    id: Math.max(2, ...agents.map((a) => a.id.length)),
     name: Math.max(4, ...agents.map((a) => a.name.length)),
     executor: Math.max(8, ...agents.map((a) => a.executor.length)),
     description: 35,
@@ -45,7 +43,6 @@ export async function listAgents(): Promise<void> {
   // Header
   const header = [
     ''.padEnd(cols.status),
-    'ID'.padEnd(cols.id),
     'Name'.padEnd(cols.name),
     'Executor'.padEnd(cols.executor),
     'Description'.padEnd(cols.description),
@@ -53,7 +50,6 @@ export async function listAgents(): Promise<void> {
 
   const separator = [
     '-'.repeat(cols.status),
-    '-'.repeat(cols.id),
     '-'.repeat(cols.name),
     '-'.repeat(cols.executor),
     '-'.repeat(cols.description),
@@ -69,7 +65,6 @@ export async function listAgents(): Promise<void> {
 
     const row = [
       status.padEnd(cols.status),
-      agent.id.padEnd(cols.id),
       agent.name.padEnd(cols.name),
       agent.executor.padEnd(cols.executor),
       description.padEnd(cols.description),
@@ -84,18 +79,17 @@ export async function listAgents(): Promise<void> {
 /**
  * Show Agent details
  */
-export async function showAgent(agentId: string): Promise<void> {
+export async function showAgent(name: string): Promise<void> {
   const agents = await loadAgents(process.cwd());
-  const agent = agents.find((a) => a.id === agentId);
+  const agent = agents.find((a) => a.name === name);
 
   if (!agent) {
-    log.error(`Agent not found: ${agentId}`);
+    log.error(`Agent not found: ${name}`);
     process.exit(1);
   }
 
   log.robot(`Agent: ${agent.name}`);
   log.newline();
-  log.plain(`ID: ${agent.id}`);
   log.plain(`Executor: ${agent.executor}`);
   log.plain(`Description: ${agent.description}`);
   log.newline();
@@ -105,17 +99,3 @@ export async function showAgent(agentId: string): Promise<void> {
   log.separator('─');
 }
 
-/**
- * Sync agents from MD files to config cache
- */
-export async function syncAgents(): Promise<void> {
-  log.sync('Syncing agents from MD files...');
-
-  try {
-    await syncAgentsToConfig(process.cwd());
-    log.success('Agents synced successfully');
-  } catch (error) {
-    log.error(`Failed to sync agents: ${error}`);
-    process.exit(1);
-  }
-}

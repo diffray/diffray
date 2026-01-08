@@ -1,40 +1,63 @@
-# ⚡ diffray
+<p align="center">
+  <img src="logo.svg" alt="diffray" width="200">
+</p>
 
-**Code Review Pipeline** - Git diffs → Agents → Results
+<h1 align="center">diffray</h1>
 
-## What is an Agent?
-
-**Agent is an abstraction** - it can be either:
-
-- **LLM Agent** - API call to Claude, GPT, or other LLMs
-- **CLI Agent** - Execution of CLI tools like `claude`, `auggie`, etc.
-
-This allows you to combine different review approaches in one pipeline!
-
-
-## Architecture
+<p align="center">
+  <strong>Multi-agent AI code review with minimal false positives</strong>
+</p>
 
 ```
-Git Changes → Pipeline → LLM Agent (Claude API)  → Result 1
-                      → CLI Agent (claude code) → Result 2
-                      → CLI Agent (auggie)      → Result 3
-                      → LLM Agent (GPT-4)       → Result 4
+Git Diffs → Specialized Agents → Deduplication → Validation → Verified Issues
 ```
+
+## Why diffray?
+
+### Multi-Agent Architecture
+Each agent is a specialist focused on one domain:
+- **security-scan** - finds vulnerabilities with concrete attack paths
+- **bug-hunter** - detects logic errors and runtime issues
+- **performance-check** - identifies performance bottlenecks
+
+Specialized agents produce higher quality findings than one generalist trying to catch everything.
+
+### Minimal False Positives
+Two-stage filtering eliminates noise:
+1. **Deduplication** - removes duplicate issues across agents
+2. **Validation** - LLM verifies each issue against actual code, filters out false positives
+
+Only issues that are verified with 90%+ confidence make it to the final report.
+
+### Flexible Execution
+Agents can run via different executors:
+- **claude-cli** - Claude Code with file access for deep analysis
+- **cerebras-api** - Fast Cerebras API for quick checks
+- Mix and match based on cost, speed, and capability needs
 
 ## Key Features
 
-- **Pipeline-based** - Process diffs through multiple stages
-- **Stage System** - Organized execution: Load Rules → Match → Execute → Aggregate
-- **Rule Matching** - Run different agents on different file types using glob patterns
-- **Flexible Agents** - Mix LLM APIs and CLI tools in one pipeline
-- **Markdown Agents** - Define agents using simple Markdown files
-- **Parallel Execution** - All agents run simultaneously within their stage
-- **Live Spinners** - Visual feedback for each agent (no external dependencies)
-- **Configurable** - Enable/disable agents, rules, and stages
-- **Global** - Works in any git repository
-- **Lightweight** - Minimal dependencies
+- **Multi-agent pipeline** - Specialized agents for security, bugs, performance
+- **False positive filtering** - Validation stage verifies issues against actual code
+- **Parallel execution** - All agents run simultaneously
+- **Rule matching** - Run different agents on different file types
+- **Markdown config** - Define agents and rules in simple `.md` files
+- **Global CLI** - Works in any git repository
+- **Zero config** - Sensible defaults, customize when needed
 
-## Installation
+## Get Results in Your PRs
+
+Want automated code reviews directly in your GitHub Pull Requests?
+
+**Sign up at [diffray.ai](https://diffray.ai)** - connect your repo and get AI code review comments on every PR.
+
+The hosted version includes:
+- **50+ specialized rules** for TypeScript, Python, Go, Rust, and more
+- **Language-specific agents** tuned for each ecosystem
+- **GitHub integration** - comments appear directly on PR diffs
+- **Team dashboard** - track issues across repositories
+
+## Installation (CLI)
 
 ### From source
 
@@ -104,21 +127,13 @@ diffray agents list
 
 # Show agent details
 diffray agents show bug-hunter
-
-# Sync agents from MD files to cache
-diffray agents sync
 ```
 
 **Creating Custom Agents:**
 
 Agents are defined using Markdown files! See [Agent Configuration Guide](./docs/AGENTS.md) for details.
 
-To create a custom agent, create a new `.md` file in `src/defaults/agents/` with the following structure:
-- Frontmatter with ID, Order, Enabled, and Executor fields
-- Description section
-- System Prompt section
-
-After creating or modifying agents, run `diffray agents sync` to reload them.
+Create a new `.md` file in `~/.diffray/agents/` or `.diffray/agents/` with frontmatter and a system prompt.
 
 ### Manage Executors
 
@@ -136,7 +151,7 @@ diffray executors disable claude-cli
 
 ### Manage Rules
 
-Rules allow you to run different agents on different file types using glob patterns. Rules are defined in Markdown files in `src/defaults/rules/`.
+Rules allow you to run different agents on different file types using glob patterns. Rules are defined in Markdown files.
 
 ```bash
 # List all rules
@@ -153,22 +168,20 @@ diffray rules test code-bugs src/cli.ts src/agents.ts README.md
 #   ● src/agents.ts
 # Not matched 1 file(s):
 #   ○ README.md
-
-# Sync rules from MD files to cache
-diffray rules sync
 ```
 
 **Creating Custom Rules:**
 
-Create a new `.md` file in `src/defaults/rules/` with frontmatter:
+Create a new `.md` file in `~/.diffray/rules/` or `.diffray/rules/` with frontmatter:
 
 ```markdown
 ---
-id: "my-rule"
-name: "My Custom Rule"
-description: "Description of what this rule does"
-patterns: ["**/*.ts", "**/*.tsx"]
-agent: "bug-hunter"
+name: my-rule
+description: Description of what this rule does
+patterns:
+  - "**/*.ts"
+  - "**/*.tsx"
+agent: bug-hunter
 ---
 
 Additional instructions for the agent when this rule matches.
@@ -181,7 +194,7 @@ Additional instructions for the agent when this rule matches.
 
 ### Configuration
 
-diffray stores configuration in `~/.diffray/config.json`. This file caches agents, executors, rules, and settings.
+diffray stores configuration in `~/.diffray/config.json`. This file stores executor settings and other preferences.
 
 ```bash
 # Initialize configuration file
@@ -210,8 +223,6 @@ The configuration file has the following structure:
     "format": "terminal"
   },
   "executors": [...],
-  "agents": [...],
-  "rules": [...],
   "stages": [...]
 }
 ```
@@ -222,10 +233,12 @@ The configuration file has the following structure:
 - `output.colorize`: Enable colored output (boolean, default: `true`)
 - `output.verbose`: Show verbose output (boolean, default: `false`)
 - `output.format`: Output format - `terminal`, `markdown`, or `json` (default: `terminal`)
-- `executors`: Cached executor configurations (managed via `diffray executors` commands)
-- `agents`: Cached agent configurations (synced from Markdown files via `diffray agents sync`)
-- `rules`: Cached rule configurations (synced from MD files via `diffray rules sync`)
+- `executors`: Executor configurations (managed via `diffray executors` commands)
 - `stages`: Pipeline stage configurations with enabled/disabled status
+
+**Dynamic Data (loaded from MD files on each run):**
+- `agents`: Loaded from `~/.diffray/agents/`, `.diffray/agents/`, `src/defaults/agents/`
+- `rules`: Loaded from `~/.diffray/rules/`, `.diffray/rules/`, `src/defaults/rules/`
 
 ### Executors Configuration
 
@@ -279,8 +292,8 @@ Agents reference executors via the `executor` field in their Markdown configurat
 
 ```markdown
 ---
-ID: bug-hunter
-Executor: claude-cli
+name: bug-hunter
+executor: claude-cli
 ---
 ```
 
@@ -293,20 +306,12 @@ Agents are configured using **Markdown files** in `src/defaults/agents/`. See th
 Each agent is defined in a `.md` file with frontmatter metadata:
 
 ```markdown
-# Agent: Bug Hunter
-
 ---
-ID: bug-hunter
-Order: 1
-Enabled: true
-Executor: claude-cli
+name: bug-hunter
+description: Detects bugs, logic errors and runtime issues
+enabled: true
+executor: claude-cli
 ---
-
-## Description
-
-Detects bugs, logic errors and runtime issues in code.
-
-## System Prompt
 
 You are a code reviewer analyzing changes for:
 
@@ -317,11 +322,9 @@ You are a code reviewer analyzing changes for:
 ### Code Quality
 - Assess readability
 - Check naming conventions
-
-Reference ../output-format.md for JSON output structure.
 ```
 
-The system will automatically load all `.md` files from `src/defaults/agents/` and cache them in the config. Run `diffray agents sync` to reload after changes.
+The system automatically loads all `.md` files from `~/.diffray/agents/`, `.diffray/agents/`, and `src/defaults/agents/`.
 
 ## Example Output
 
@@ -376,14 +379,6 @@ diffray/
 │   └── issue-formatter.ts   # Issue formatting
 └── package.json
 ```
-
-## Roadmap
-
-- [ ] Interactive mode with file selection
-- [ ] Export reports to markdown/HTML
-- [ ] Integration with GitHub/GitLab
-- [ ] Token batching for large diffs
-- [ ] Caching for repeated reviews
 
 ## Built With
 

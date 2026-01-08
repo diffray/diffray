@@ -1,12 +1,12 @@
 {
   "name": "diffray",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "AI-powered code review CLI for git changes",
   "author": "Ilya Strelov <strelov1@gmail.com>",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "diffray": "./bin/diffray-wrapper.js"
+    "diffray": "./bin/diffray.ts"
   },
   "files": [
     "bin/diffray-wrapper.js",
@@ -18,6 +18,8 @@
     "dev": "bun run ./bin/diffray.ts",
     "build": "bun build ./bin/diffray.ts --compile --target=bun --minify --outfile dist/diffray",
     "build:all": "bash scripts/build-all.sh",
+    "link:local": "node -e \"const p=require('./package.json');p.bin.diffray='./bin/diffray.ts';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2)+'\\n')\" && bun link",
+    "link:publish": "node -e \"const p=require('./package.json');p.bin.diffray='./bin/diffray-wrapper.js';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2)+'\\n')\"",
     "link": "bun link",
     "unlink": "bun unlink",
     "ts-check": "tsc --noEmit",
@@ -25,7 +27,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepublishOnly": "echo 'Run build:all and create GitHub release first!'"
+    "prepublishOnly": "npm run link:publish && echo 'Run build:all and create GitHub release first!'"
   },
   "repository": {
     "type": "git",

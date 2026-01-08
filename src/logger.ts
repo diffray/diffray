@@ -6,6 +6,8 @@
 // ANSI color codes
 const colors = {
   reset: '\x1b[0m',
+  bold: '\x1b[1m',
+  dim: '\x1b[2m',
   red: '\x1b[31m',
   green: '\x1b[32m',
   yellow: '\x1b[33m',
@@ -101,9 +103,9 @@ export const log = {
   // Logo banner
   logo: () => {
     console.log();
-    console.log(`  ${colors.green}┌──────────────────────────────┐${colors.reset}`);
-    console.log(`  ${colors.green}│  diffray - AI Code Review    │${colors.reset}`);
-    console.log(`  ${colors.green}└──────────────────────────────┘${colors.reset}`);
+    console.log(`  ┌───────────────────────────────────────────────┐`);
+    console.log(`  │  [${colors.green}+${colors.reset}/${colors.red}-${colors.reset}] ${colors.bold}diffray${colors.reset} ${colors.dim}— Multi-agent AI code review${colors.reset}  │`);
+    console.log(`  └───────────────────────────────────────────────┘`);
     console.log();
   },
 
