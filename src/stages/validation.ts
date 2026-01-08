@@ -14,8 +14,7 @@ import type {
 } from '../types';
 import { parseIssues } from '../issue-parser';
 import { log } from '../logger';
-import { executorFactory } from '../executors';
-import { loadConfig } from '../config';
+import { executorFactory, getExecutor } from '../executors';
 import { getCached, CACHE_KEYS } from '../cache';
 import {
   chunk,
@@ -26,6 +25,7 @@ import {
   getFailures,
   type BatchResult,
 } from '../batch-executor';
+import { loadAgentMarkdown } from '../agents/md-loader';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -33,21 +33,33 @@ import { fileURLToPath } from 'url';
 
 const VALIDATION_BATCH_SIZE = 15; // Issues per batch
 
-// ============ Validation Prompt (using unified cache) ============
+// ============ Validation Agent Loading ============
 
-const DEFAULT_VALIDATION_PROMPT = `You are a code review validation agent. Your task is to validate issues found by other agents and filter out false positives.
+const DEFAULT_VALIDATION_AGENT: Agent = {
+  name: 'validation',
+  description: 'Validates issues found by other agents',
+  systemPrompt: `You are a code review validation agent. Your task is to validate issues found by other agents and filter out false positives.
 
 You may include your analysis and reasoning, but MUST include a JSON array of valid issues somewhere in your response.
-Be strict but fair. Only filter out clear false positives.`;
+Be strict but fair. Only filter out clear false positives.`,
+  enabled: true,
+  order: 999,
+  executor: 'claude-cli',
+  executorSettings: { model: 'opus', timeout: 180 },
+};
 
-async function loadValidationPrompt(): Promise<string> {
+/**
+ * Load validation agent from MD file or use default
+ */
+async function loadValidationAgent(): Promise<Agent> {
   return getCached(CACHE_KEYS.VALIDATION_PROMPT, async () => {
     try {
       const __filename = fileURLToPath(import.meta.url);
-      const promptPath = join(__filename, '..', '..', 'defaults', 'prompts', 'validation.md');
-      return await Bun.file(promptPath).text();
+      const agentPath = join(__filename, '..', '..', 'defaults', 'agents', 'validation.md');
+      const agents = await loadAgentMarkdown(agentPath);
+      return agents[0] ?? DEFAULT_VALIDATION_AGENT;
     } catch {
-      return DEFAULT_VALIDATION_PROMPT;
+      return DEFAULT_VALIDATION_AGENT;
     }
   });
 }
@@ -55,46 +67,27 @@ async function loadValidationPrompt(): Promise<string> {
 // ============ Helper Functions ============
 
 /**
- * Select executor for validation from config or first enabled
+ * Get executor for validation agent with settings applied
  */
-async function selectExecutor(
+function getValidationExecutor(
+  agent: Agent,
   context: PipelineContext
-): Promise<AgentExecutor | null> {
-  const config = await loadConfig();
-  const executors = executorFactory.listExecutors();
+): AgentExecutor | null {
+  const executor = getExecutor(agent.executor);
 
-  let executor: AgentExecutor | undefined;
-
-  // Check if specific executor is configured for validation
-  if (config.validation?.executor) {
-    executor = executors.find((e) => e.name === config.validation.executor && e.enabled);
-    if (!executor) {
-      if (!context.quiet) {
-        log.warn(
-          `Configured validation executor '${config.validation.executor}' not found or disabled, using default`
-        );
-      }
-    }
-  }
-
-  // Fall back to first enabled executor
-  if (!executor) {
-    executor = executors.find((e) => e.enabled);
-  }
-
-  if (!executor) {
+  if (!executor || !executor.enabled) {
     if (!context.quiet) {
-      log.warn('No enabled executor found for validation, skipping validation');
+      log.warn(`Validation executor '${agent.executor}' not found or disabled, skipping validation`);
     }
     return null;
   }
 
-  // Apply model override if configured (only for executors that support it)
-  if (config.validation?.model && (executor.type === 'llm-api' || executor.type === 'cli')) {
-    return { ...executor, model: config.validation.model };
+  // Apply agent's executorSettings if present
+  if (agent.executorSettings && executor.applySettings) {
+    return executor.applySettings(agent.executorSettings);
   }
 
-  return executor;
+  return executor.getInfo();
 }
 
 /**
@@ -104,8 +97,8 @@ async function executeValidationBatch(
   batch: Issue[],
   batchIdx: number,
   totalBatches: number,
+  validationAgent: Agent,
   executor: AgentExecutor,
-  validationPrompt: string,
   context: PipelineContext
 ): Promise<BatchResult<Issue[]>> {
   // Convert batch to JSON
@@ -125,22 +118,12 @@ async function executeValidationBatch(
   // Combine repository context with issues JSON
   const inputWithContext = `${repoContext}\n\n# Issues to validate:\n${issuesJson}`;
 
-  // Create a dummy Agent for validation
-  const validationAgent: Agent = {
-    name: 'validation-agent',
-    description: 'Validates issues found by other agents',
-    systemPrompt: validationPrompt,
-    enabled: true,
-    order: 999,
-    executor: executor.name,
-  };
-
   // Create execution context
   const execContext: ExecutionContext = {
     agent: validationAgent,
     executor: executor,
     input: inputWithContext,
-    systemPrompt: validationPrompt,
+    systemPrompt: validationAgent.systemPrompt,
     verbose: context.verbose,
     quiet: context.quiet,
     cwd: repoPath,
@@ -155,7 +138,7 @@ async function executeValidationBatch(
     log.plain(`   Executor: ${executor.name}`);
     log.plain(`   Issues to validate: ${batch.length}`);
     log.plain('─'.repeat(80));
-    log.plain(`${validationPrompt}\n\n# Input:\n${repoContext}\n\n# Issues to validate:\n<issues JSON ${issuesJson.length} chars>`);
+    log.plain(`${validationAgent.systemPrompt}\n\n# Input:\n${repoContext}\n\n# Issues to validate:\n<issues JSON ${issuesJson.length} chars>`);
     log.plain('─'.repeat(80));
     log.newline();
   }
@@ -257,8 +240,11 @@ export function createValidationStage(): Stage {
         };
       }
 
-      // Select executor for validation
-      const finalExecutor = await selectExecutor(context);
+      // Load validation agent from MD file
+      const validationAgent = await loadValidationAgent();
+
+      // Get executor for validation (with agent's executorSettings applied)
+      const finalExecutor = getValidationExecutor(validationAgent, context);
       if (!finalExecutor) {
         return {
           stageId: 'validation',
@@ -267,9 +253,6 @@ export function createValidationStage(): Stage {
           duration: Date.now() - startTime,
         };
       }
-
-      // Load validation prompt from file
-      const validationPrompt = await loadValidationPrompt();
 
       // Split into batches if needed
       const batches = chunk(allIssues, VALIDATION_BATCH_SIZE);
@@ -301,8 +284,8 @@ export function createValidationStage(): Stage {
               batch,
               batchIdx,
               totalBatches,
+              validationAgent,
               finalExecutor,
-              validationPrompt,
               context
             ),
           { concurrency: context.concurrency, quiet: context.quiet }

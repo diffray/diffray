@@ -2,6 +2,7 @@
  * Shared types for executors module
  */
 
+import type { z } from 'zod';
 import type { ExecutionContext, ExecutionResult, AgentExecutor } from '../types';
 
 export interface Executor {
@@ -11,6 +12,12 @@ export interface Executor {
   enabled: boolean;
   execute: (ctx: ExecutionContext) => Promise<ExecutionResult>;
   getInfo: () => AgentExecutor;
+
+  // Settings schema for validation and type inference
+  settingsSchema?: z.ZodType<Record<string, unknown>>;
+
+  // Apply settings override, returns new executor info with merged settings
+  applySettings?: (settings: Record<string, unknown>) => AgentExecutor;
 }
 
 export interface APIConfig {

@@ -2,7 +2,7 @@
  * Executor management commands
  */
 
-import { loadExecutors } from '../executors.js';
+import { loadExecutors, getExecutor } from '../executors.js';
 import { updateConfig } from '../config.js';
 import { log } from '../logger';
 import type { AgentExecutor } from '../types.js';
@@ -29,6 +29,21 @@ function getMaxTokens(e: AgentExecutor): number | undefined {
 }
 
 /**
+ * Get available settings from executor's settingsSchema
+ */
+function getAvailableSettings(executorName: string): string[] {
+  const executor = getExecutor(executorName);
+  if (!executor?.settingsSchema) return [];
+
+  // Extract field names from Zod schema shape
+  const schema = executor.settingsSchema;
+  if ('shape' in schema && typeof schema.shape === 'object') {
+    return Object.keys(schema.shape as Record<string, unknown>);
+  }
+  return [];
+}
+
+/**
  * List all Executors in table format
  */
 export async function listExecutors(): Promise<void> {
@@ -42,14 +57,19 @@ export async function listExecutors(): Promise<void> {
     return;
   }
 
+  // Get available settings for each executor
+  const settingsMap = new Map<string, string[]>();
+  for (const e of executors) {
+    settingsMap.set(e.name, getAvailableSettings(e.name));
+  }
+
   // Calculate column widths
   const cols = {
     status: 1,
     name: Math.max(8, ...executors.map((e) => e.name.length)),
     model: Math.max(5, ...executors.map((e) => (getModel(e) || '-').length)),
     timeout: 7,
-    temp: 4,
-    tokens: 6,
+    settings: 20,
   };
 
   // Header
@@ -58,8 +78,7 @@ export async function listExecutors(): Promise<void> {
     'Executor'.padEnd(cols.name),
     'Model'.padEnd(cols.model),
     'Timeout'.padEnd(cols.timeout),
-    'Temp'.padEnd(cols.temp),
-    'Tokens'.padEnd(cols.tokens),
+    'Available Settings'.padEnd(cols.settings),
   ].join('  ');
 
   const separator = [
@@ -67,8 +86,7 @@ export async function listExecutors(): Promise<void> {
     '-'.repeat(cols.name),
     '-'.repeat(cols.model),
     '-'.repeat(cols.timeout),
-    '-'.repeat(cols.temp),
-    '-'.repeat(cols.tokens),
+    '-'.repeat(cols.settings),
   ].join('  ');
 
   log.plain(header);
@@ -79,16 +97,14 @@ export async function listExecutors(): Promise<void> {
     const status = executor.enabled ? '●' : '○';
     const model = getModel(executor) || '-';
     const timeout = getTimeout(executor) ? `${getTimeout(executor)}s` : '-';
-    const temp = getTemperature(executor) !== undefined ? String(getTemperature(executor)) : '-';
-    const tokens = getMaxTokens(executor) !== undefined ? String(getMaxTokens(executor)) : '-';
+    const settings = settingsMap.get(executor.name)?.join(', ') || '-';
 
     const row = [
       status.padEnd(cols.status),
       executor.name.padEnd(cols.name),
       model.padEnd(cols.model),
       timeout.padEnd(cols.timeout),
-      temp.padEnd(cols.temp),
-      tokens.padEnd(cols.tokens),
+      settings.padEnd(cols.settings),
     ].join('  ');
 
     log.plain(row);
@@ -140,6 +156,16 @@ export async function showExecutor(executorName: string): Promise<void> {
           ? String(value).substring(0, 8) + '...'
           : value;
       log.plain(`  ${key}: ${maskedValue}`);
+    }
+  }
+
+  // Show available settings that can be overridden
+  const availableSettings = getAvailableSettings(executorName);
+  if (availableSettings.length > 0) {
+    log.newline();
+    log.plain('Available Settings (for executorSettings in agent frontmatter):');
+    for (const setting of availableSettings) {
+      log.plain(`  - ${setting}`);
     }
   }
 }

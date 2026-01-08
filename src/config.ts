@@ -23,12 +23,6 @@ export const ConfigSchema = z.object({
       format: z.enum(['terminal', 'markdown', 'json']).default('terminal'),
     })
     .default({}),
-  validation: z
-    .object({
-      executor: z.string().optional(), // Executor name (e.g., 'cerebras-api', 'claude-cli')
-      model: z.string().optional(), // Model override (e.g., 'haiku', 'llama-3.3-70b')
-    })
-    .default({}),
   executors: z.array(ExecutorConfigSchema).default([]),
   stages: z
     .array(z.object({ id: z.string(), enabled: z.boolean(), order: z.number().optional() }))
@@ -84,7 +78,6 @@ export async function updateConfig(updates: Partial<Config>): Promise<Config> {
     excludePatterns:
       updates.excludePatterns !== undefined ? updates.excludePatterns : current.excludePatterns,
     output: updates.output ? { ...current.output, ...updates.output } : current.output,
-    validation: updates.validation ? { ...current.validation, ...updates.validation } : current.validation,
     executors: updates.executors !== undefined ? updates.executors : current.executors,
     stages: updates.stages !== undefined ? updates.stages : current.stages,
   };

@@ -1,8 +1,8 @@
 # Output Format
 
-Return your findings as a **JSON array** with the following structure:
+Return your findings as a **JSON array** wrapped in `<json>...</json>` XML tags:
 
-```json
+<json>
 [
   {
     "file": "path/to/file.ts",
@@ -15,7 +15,7 @@ Return your findings as a **JSON array** with the following structure:
     "suggestion": "How to fix this issue (optional)"
   }
 ]
-```
+</json>
 
 ## Field Descriptions:
 
@@ -30,7 +30,7 @@ Return your findings as a **JSON array** with the following structure:
 
 ## Important Rules:
 
-1. **Return empty array if no issues found**: `[]`
+1. **Return empty array if no issues found**: `<json>[]</json>`
 2. **Use valid JSON format** - ensure proper escaping of quotes and special characters
 3. **Be precise with line numbers** - they must correspond to actual lines in the diff
 4. **Only report actual issues** - do NOT report:
@@ -41,7 +41,7 @@ Return your findings as a **JSON array** with the following structure:
 
 ## Example:
 
-```json
+<json>
 [
   {
     "file": "src/utils/validator.ts",
@@ -54,4 +54,4 @@ Return your findings as a **JSON array** with the following structure:
     "suggestion": "Add a null check before accessing user properties: if (user) { ... }"
   }
 ]
-```
+</json>

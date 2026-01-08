@@ -1,5 +1,5 @@
 /**
- * Stage 2: Execute Agents
+ * Stage 2: Review - Run code review agents
  */
 
 import type { Stage, StageResult, PipelineContext, ExecutionContext, AgentResult, Issue } from '../types';
@@ -125,10 +125,15 @@ async function executeBatch(
       log.newline();
     }
 
-    // Create execution context
+    // Create execution context with optional settings override
+    const executorInfo =
+      agent.executorSettings && executor.applySettings
+        ? executor.applySettings(agent.executorSettings)
+        : executor.getInfo();
+
     const execContext: ExecutionContext = {
       agent,
-      executor: executor.getInfo(),
+      executor: executorInfo,
       input: batchDiffsText,
       systemPrompt,
       verbose: context.verbose,
@@ -197,11 +202,11 @@ function aggregateBatchResults(
   };
 }
 
-export function createExecuteAgentsStage(): Stage {
+export function createReviewStage(): Stage {
   return {
-    id: 'execute-agents',
-    name: 'Execute Agents',
-    description: 'Execute Agents via Executors',
+    id: 'review',
+    name: 'Review',
+    description: 'Run code review agents',
     enabled: true,
     order: 2,
     execute: async (context: PipelineContext): Promise<StageResult> => {
@@ -226,8 +231,8 @@ export function createExecuteAgentsStage(): Stage {
           log.warn('No enabled Agents found');
         }
         return {
-          stageId: 'execute-agents',
-          stageName: 'Execute Agents',
+          stageId: 'review',
+          stageName: 'Review',
           success: true,
           duration: Date.now() - startTime,
         };
@@ -349,8 +354,8 @@ export function createExecuteAgentsStage(): Stage {
       }
 
       return {
-        stageId: 'execute-agents',
-        stageName: 'Execute Agents',
+        stageId: 'review',
+        stageName: 'Review',
         success: failureCount === 0,
         duration: Date.now() - startTime,
         error: stageError,

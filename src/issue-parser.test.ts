@@ -178,6 +178,52 @@ describe('parseIssues', () => {
       expect(issues).toHaveLength(1);
       expect(issues[0]?.shortDescription).toBe('N+1 query');
     });
+
+    test('should handle Claude CLI result with <json> XML tags', () => {
+      const claudeOutput = JSON.stringify({
+        type: 'result',
+        result:
+          'Here is my analysis:\n\n<json>\n' +
+          JSON.stringify([
+            {
+              file: 'src/app.ts',
+              lineStart: 5,
+              severity: 'high',
+              category: 'security',
+              shortDescription: 'XSS vulnerability',
+            },
+          ]) +
+          '\n</json>',
+      });
+
+      const issues = parseIssues(claudeOutput);
+
+      expect(issues).toHaveLength(1);
+      expect(issues[0]?.shortDescription).toBe('XSS vulnerability');
+    });
+
+    test('should prefer <json> tags over markdown code blocks', () => {
+      const claudeOutput = JSON.stringify({
+        type: 'result',
+        result:
+          '```diff\n-old\n+new\n```\n\nHere are the issues:\n\n<json>\n' +
+          JSON.stringify([
+            {
+              file: 'src/app.ts',
+              lineStart: 10,
+              severity: 'medium',
+              category: 'bug',
+              shortDescription: 'From XML tags',
+            },
+          ]) +
+          '\n</json>',
+      });
+
+      const issues = parseIssues(claudeOutput);
+
+      expect(issues).toHaveLength(1);
+      expect(issues[0]?.shortDescription).toBe('From XML tags');
+    });
   });
 
   describe('JSON extraction from text', () => {
