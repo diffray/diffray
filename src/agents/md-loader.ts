@@ -19,6 +19,14 @@ function buildAgent(frontmatter: Frontmatter, body: string): Agent | null {
     return null;
   }
 
+  // Parse executorSettings if present (must be an object)
+  const executorSettings =
+    frontmatter.executorSettings &&
+    typeof frontmatter.executorSettings === 'object' &&
+    !Array.isArray(frontmatter.executorSettings)
+      ? (frontmatter.executorSettings as Record<string, unknown>)
+      : undefined;
+
   const agent: Agent = {
     name,
     description: typeof frontmatter.description === 'string' ? frontmatter.description : '',
@@ -26,6 +34,7 @@ function buildAgent(frontmatter: Frontmatter, body: string): Agent | null {
     enabled: typeof frontmatter.enabled === 'boolean' ? frontmatter.enabled : true,
     order: typeof frontmatter.order === 'number' ? frontmatter.order : 0,
     executor: typeof frontmatter.executor === 'string' ? frontmatter.executor : 'test-cli',
+    ...(executorSettings && { executorSettings }),
   };
 
   return agent;

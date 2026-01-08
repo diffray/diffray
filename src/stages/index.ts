@@ -7,7 +7,7 @@ import type { Stage } from '../types';
 import { loadConfig, updateConfig } from '../config';
 import { createLoadRulesStage } from './load-rules';
 import { createMatchRulesStage } from './match-rules';
-import { createExecuteAgentsStage } from './execute-agents';
+import { createReviewStage } from './review';
 import { createAggregateResultsStage } from './aggregate-results';
 import { createDeduplicationStage } from './deduplication';
 import { createValidationStage } from './validation';
@@ -27,7 +27,7 @@ export const StageConfigSchema = z.object({
 const BUILTIN_STAGES = {
   'load-rules': createLoadRulesStage,
   'match-rules': createMatchRulesStage,
-  'execute-agents': createExecuteAgentsStage,
+  'review': createReviewStage,
   'aggregate-results': createAggregateResultsStage,
   deduplication: createDeduplicationStage,
   validation: createValidationStage,
@@ -74,7 +74,7 @@ export function getDefaultStages(): Stage[] {
   return [
     createLoadRulesStage(),
     createMatchRulesStage(),
-    createExecuteAgentsStage(),
+    createReviewStage(),
     createAggregateResultsStage(),
     createDeduplicationStage(),
     createValidationStage(),

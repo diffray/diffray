@@ -2,10 +2,18 @@
  * API Executor - executes agents via HTTP API
  */
 
+import { z } from 'zod';
 import type { ExecutionContext, ExecutionResult } from '../types';
 import type { Executor, APIConfig } from './types';
 import { log } from '../logger';
 import { fetchWithRetry, loadOutputFormat, buildUserPrompt, createResult } from './utils';
+
+// Settings schema for API executors
+export const APISettingsSchema = z.object({
+  model: z.string().optional(),
+  temperature: z.number().min(0).max(2).optional(),
+  maxTokens: z.number().positive().optional(),
+});
 
 export function createAPIExecutor(
   config: APIConfig,
@@ -56,6 +64,26 @@ export function createAPIExecutor(
       maxTokens: config.maxTokens,
       enabled: Boolean(config.apiKey),
     }),
+
+    settingsSchema: APISettingsSchema,
+
+    applySettings: (settings: Record<string, unknown>) => {
+      const parsed = APISettingsSchema.safeParse(settings);
+      const validSettings = parsed.success ? parsed.data : {};
+
+      return {
+        name: config.name,
+        description: config.description,
+        type: 'llm-api' as const,
+        provider: 'custom' as const,
+        model: validSettings.model ?? config.model,
+        apiKey: config.apiKey,
+        baseUrl: config.baseUrl,
+        temperature: validSettings.temperature ?? config.temperature,
+        maxTokens: validSettings.maxTokens ?? config.maxTokens,
+        enabled: Boolean(config.apiKey),
+      };
+    },
   };
 }
 

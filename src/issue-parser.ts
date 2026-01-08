@@ -119,19 +119,44 @@ function extractJsonArray(text: string): RawIssueItem[] | null {
 }
 
 /**
+ * Extract JSON from <json>...</json> XML tags
+ */
+function extractJsonFromXmlTags(text: string): string | null {
+  const match = text.match(/<json>\s*([\s\S]*?)\s*<\/json>/);
+  return match?.[1]?.trim() ?? null;
+}
+
+/**
  * Extract content from Claude CLI JSON envelope
- * Claude CLI returns: {"type":"result","result":"```json\n[...]\n```"}
+ * Claude CLI returns: {"type":"result","result":"<json>[...]</json>"}
  */
 function extractClaudeCliResult(text: string): string | null {
   try {
     const data = JSON.parse(text) as { type?: string; result?: string };
     if (data.type === 'result' && typeof data.result === 'string') {
-      // Strip markdown code blocks if present
       let result = data.result;
-      const codeBlockMatch = result.match(/```(?:json)?\s*([\s\S]*?)```/);
-      if (codeBlockMatch) {
-        result = codeBlockMatch[1]?.trim() ?? result;
+
+      // First try <json>...</json> XML tags (most reliable)
+      const xmlTagContent = extractJsonFromXmlTags(result);
+      if (xmlTagContent) {
+        return xmlTagContent;
       }
+
+      // Fall back to ```json code block
+      const jsonCodeBlockMatch = result.match(/```json\s*([\s\S]*?)```/);
+      if (jsonCodeBlockMatch) {
+        return jsonCodeBlockMatch[1]?.trim() ?? result;
+      }
+
+      // Last resort: any code block with JSON content
+      const allCodeBlocks = result.matchAll(/```(?:\w*)?\s*([\s\S]*?)```/g);
+      for (const match of allCodeBlocks) {
+        const content = match[1]?.trim();
+        if (content?.startsWith('[') || content?.startsWith('{')) {
+          return content;
+        }
+      }
+
       return result;
     }
   } catch (e) {

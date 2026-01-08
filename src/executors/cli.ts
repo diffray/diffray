@@ -2,12 +2,19 @@
  * CLI Executor - executes agents via command line tools
  */
 
+import { z } from 'zod';
 import type { ExecutionContext, ExecutionResult } from '../types';
 import type { Executor, CLIConfig } from './types';
 import { log } from '../logger';
 import { loadOutputFormat, buildPrompt, buildUserPrompt, createResult } from './utils';
 import { trackProcess, ensureSigintHandler } from './process';
 import { streamClaudeCli } from './claude-cli';
+
+// Settings schema for CLI executors
+export const CLISettingsSchema = z.object({
+  model: z.string().optional(),
+  timeout: z.number().positive().optional(),
+});
 
 const CLAUDE_CLI_DEFAULTS = {
   model: 'sonnet',
@@ -179,6 +186,25 @@ export function createCLIExecutor(config: CLIConfig): Executor {
       model: config.model,
       enabled: true,
     }),
+
+    settingsSchema: CLISettingsSchema,
+
+    applySettings: (settings: Record<string, unknown>) => {
+      const parsed = CLISettingsSchema.safeParse(settings);
+      const validSettings = parsed.success ? parsed.data : {};
+
+      return {
+        name: config.name,
+        description: config.description,
+        type: 'cli' as const,
+        command: config.command,
+        args: config.args,
+        env: config.env,
+        timeout: validSettings.timeout ?? config.timeout,
+        model: validSettings.model ?? config.model,
+        enabled: true,
+      };
+    },
   };
 }
 

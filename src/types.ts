@@ -56,6 +56,9 @@ export interface Agent {
   // Which executor will execute this task
   executor: string;
 
+  // Executor-specific settings (e.g., temperature, model, timeout)
+  executorSettings?: Record<string, unknown>;
+
   // Where this agent was loaded from
   source?: ConfigSource;
 }
