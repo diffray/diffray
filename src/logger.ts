@@ -244,3 +244,324 @@ export class Spinner {
     process.stdout.write('\x1B[?25h');
   }
 }
+
+/**
+ * Task status for MultiProgress
+ */
+export type TaskStatus = 'pending' | 'running' | 'done' | 'error';
+
+/**
+ * Task configuration for MultiProgress
+ */
+export interface ProgressTask {
+  id: string;
+  label: string;
+  status: TaskStatus;
+  detail?: string;
+  duration?: number;
+  startTime?: number;
+  // For ETA calculation
+  totalBatches: number;
+  completedBatches: number;
+  fileCount: number;
+  ruleCount: number;
+}
+
+/**
+ * ETA estimation constant: average seconds per file×rule combination.
+ * This is a rough heuristic - actual times vary significantly:
+ * - claude-cli: ~15-30s (subprocess overhead + streaming)
+ * - cerebras-api: ~5-10s (fast inference)
+ * - llm-api: ~10-20s (depends on provider)
+ * Value of 10s is a middle-ground estimate for smooth progress display.
+ */
+const SECONDS_PER_FILE_RULE = 10;
+
+/**
+ * Multi-line progress display like Docker build output
+ *
+ * Example:
+ *   [1/2] bug-hunter       ░░░░░░░░░░░░ ⠼ 12s  ~20s left
+ *   [2/2] security-scan    ████████████ ✓ 8.2s
+ */
+export class MultiProgress {
+  private tasks: Map<string, ProgressTask> = new Map();
+  private taskOrder: string[] = [];
+  private intervalId: ReturnType<typeof setInterval> | null = null;
+  private frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+  private frameIndex = 0;
+  private linesWritten = 0;
+  private isActive = false;
+  private isDirty = true; // Track if state changed since last render
+  private exitHandler: (() => void) | null = null;
+
+  /**
+   * Add a task to track
+   * @param id - Unique task ID
+   * @param label - Display label
+   * @param totalBatches - Number of batches
+   * @param fileCount - Number of files (for ETA)
+   * @param ruleCount - Number of rules (for ETA)
+   * @param detail - Additional detail text
+   */
+  addTask(
+    id: string,
+    label: string,
+    totalBatches: number,
+    fileCount: number,
+    ruleCount: number,
+    detail?: string
+  ): void {
+    const task: ProgressTask = {
+      id,
+      label,
+      status: 'pending',
+      detail,
+      totalBatches,
+      completedBatches: 0,
+      fileCount,
+      ruleCount,
+    };
+    this.tasks.set(id, task);
+    this.taskOrder.push(id);
+  }
+
+  /**
+   * Start the multi-progress display
+   */
+  start(): void {
+    if (this.isActive) return;
+    this.isActive = true;
+
+    // Hide cursor
+    process.stdout.write('\x1B[?25l');
+
+    // Register exit handler to restore cursor on unexpected termination
+    this.exitHandler = () => {
+      process.stdout.write('\x1B[?25h');
+    };
+    process.on('exit', this.exitHandler);
+
+    // Initial render
+    this.render();
+
+    // Start animation loop
+    this.intervalId = setInterval(() => {
+      this.frameIndex = (this.frameIndex + 1) % this.frames.length;
+      // Only render if dirty or if there are running tasks (for spinner animation)
+      const hasRunning = [...this.tasks.values()].some((t) => t.status === 'running');
+      if (this.isDirty || hasRunning) {
+        this.render();
+        this.isDirty = false;
+      }
+    }, 80);
+  }
+
+  /**
+   * Mark task as running
+   */
+  startTask(id: string): void {
+    const task = this.tasks.get(id);
+    if (!task) return;
+    if (task.status !== 'running') {
+      task.startTime = Date.now();
+      task.status = 'running';
+      this.isDirty = true;
+    }
+  }
+
+  /**
+   * Complete a batch and update progress
+   */
+  completeBatch(id: string): void {
+    const task = this.tasks.get(id);
+    if (!task) return;
+
+    task.completedBatches++;
+    this.isDirty = true;
+
+    // Auto-complete task when all batches done
+    if (task.completedBatches >= task.totalBatches) {
+      task.status = 'done';
+      if (task.startTime) {
+        task.duration = Date.now() - task.startTime;
+      }
+    }
+  }
+
+  /**
+   * Mark task as error
+   */
+  failTask(id: string): void {
+    const task = this.tasks.get(id);
+    if (!task) return;
+    task.status = 'error';
+    this.isDirty = true;
+    if (task.startTime) {
+      task.duration = Date.now() - task.startTime;
+    }
+  }
+
+  /**
+   * Calculate estimated total time based on file/rule count
+   */
+  private getEstimatedTotal(task: ProgressTask): number {
+    return task.fileCount * task.ruleCount * SECONDS_PER_FILE_RULE * 1000;
+  }
+
+  /**
+   * Calculate progress (0-1) combining time-based and batch-based progress.
+   * Uses the maximum of both to ensure smooth animation while respecting
+   * actual completion - if task finishes faster than estimated, batch progress
+   * will drive the bar forward; if slower, time progress keeps it moving.
+   */
+  private calculateProgress(task: ProgressTask): number {
+    if (task.status === 'done') return 1;
+    if (task.status === 'error') return task.completedBatches / Math.max(1, task.totalBatches);
+    if (task.status !== 'running' || !task.startTime) return 0;
+
+    // Time-based progress (smooth animation)
+    const elapsed = Date.now() - task.startTime;
+    const estimatedTotal = this.getEstimatedTotal(task);
+    const timeProgress = elapsed / estimatedTotal;
+
+    // Batch-based progress (actual completion)
+    const batchProgress = task.completedBatches / Math.max(1, task.totalBatches);
+
+    // Use max of both, capped at 95% until actually done
+    return Math.min(0.95, Math.max(timeProgress, batchProgress));
+  }
+
+  /**
+   * Calculate remaining time
+   */
+  private calculateETA(task: ProgressTask): number | null {
+    if (task.status !== 'running' || !task.startTime) return null;
+
+    const elapsed = Date.now() - task.startTime;
+    const estimatedTotal = this.getEstimatedTotal(task);
+    const remaining = Math.max(0, estimatedTotal - elapsed);
+
+    return remaining > 1000 ? remaining : null;
+  }
+
+  /**
+   * Format progress bar from 0-1 progress value
+   */
+  private formatProgressBar(progress: number, width: number = 12): string {
+    const filled = Math.round(progress * width);
+    const empty = width - filled;
+    return '█'.repeat(filled) + '░'.repeat(empty);
+  }
+
+  /**
+   * Render all task lines
+   */
+  private render(): void {
+    // Move cursor up to overwrite previous output
+    if (this.linesWritten > 0) {
+      process.stdout.write(`\x1B[${this.linesWritten}A`);
+    }
+
+    const lines: string[] = [];
+    const total = this.taskOrder.length;
+
+    for (let i = 0; i < this.taskOrder.length; i++) {
+      const id = this.taskOrder[i]!;
+      const task = this.tasks.get(id);
+      if (!task) continue;
+      const line = this.formatTaskLine(task, i + 1, total);
+      lines.push(line);
+    }
+
+    // Write all lines
+    for (const line of lines) {
+      process.stdout.write(`\x1B[K${line}\n`);
+    }
+
+    this.linesWritten = lines.length;
+  }
+
+  /**
+   * Format a single task line
+   */
+  private formatTaskLine(task: ProgressTask, index: number, total: number): string {
+    const indexStr = `[${index}/${total}]`.padEnd(7);
+    const maxLabelWidth = 18;
+    const labelStr =
+      task.label.length > maxLabelWidth
+        ? task.label.slice(0, maxLabelWidth - 1) + '…'
+        : task.label.padEnd(maxLabelWidth);
+
+    // Progress bar with status
+    let barColor: string;
+    let statusIcon: string;
+
+    switch (task.status) {
+      case 'pending':
+        barColor = colors.gray;
+        statusIcon = '○';
+        break;
+      case 'running':
+        barColor = colors.cyan;
+        statusIcon = this.frames[this.frameIndex] ?? '⠋';
+        break;
+      case 'done':
+        barColor = colors.green;
+        statusIcon = '✓';
+        break;
+      case 'error':
+        barColor = colors.red;
+        statusIcon = '✗';
+        break;
+    }
+
+    // Use time-based progress for smooth animation
+    const progress = this.calculateProgress(task);
+    const bar = this.formatProgressBar(progress);
+    const progressStr = `${barColor}${bar}${colors.reset} ${statusIcon}`;
+
+    // Format time - show only one value: ETA while running, elapsed when done
+    let timeStr = '';
+    if (task.status === 'running') {
+      const eta = this.calculateETA(task);
+      if (eta !== null) {
+        const etaSec = Math.ceil(eta / 1000);
+        timeStr = `~${etaSec}s`;
+      }
+    } else if (task.duration !== undefined) {
+      const sec = (task.duration / 1000).toFixed(1);
+      timeStr = `${sec}s`;
+    }
+
+    // Build final line - compact format with separator
+    const detailStr = task.detail ? `${colors.dim}| ${task.detail}${colors.reset}` : '';
+
+    return `  ${colors.dim}${indexStr}${colors.reset} ${labelStr} ${progressStr} ${timeStr.padEnd(6)} ${detailStr}`;
+  }
+
+  /**
+   * Stop the multi-progress display
+   */
+  stop(): void {
+    if (!this.isActive) return;
+    this.isActive = false;
+
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+      this.intervalId = null;
+    }
+
+    // Remove exit handler
+    if (this.exitHandler) {
+      process.removeListener('exit', this.exitHandler);
+      this.exitHandler = null;
+    }
+
+    // Final render
+    this.render();
+
+    // Show cursor
+    process.stdout.write('\x1B[?25h');
+  }
+}

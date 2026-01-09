@@ -13,7 +13,7 @@ import type {
 } from '../types';
 import { agentRegistry } from '../agents/registry';
 import { executorFactory } from '../executors';
-import { log } from '../logger';
+import { log, MultiProgress } from '../logger';
 import { parseIssues } from '../issue-parser';
 import { batchDiffs, formatBatchInfo } from '../token-utils';
 import { getTokenCounterName, estimateTokens } from '../token-counter';
@@ -94,9 +94,15 @@ async function executeBatch(
   systemPrompt: string,
   systemTokens: number,
   context: PipelineContext,
-  limit: ReturnType<typeof createLimiter>
+  limit: ReturnType<typeof createLimiter>,
+  progress?: MultiProgress
 ): Promise<AgentBatchResult> {
   return limit(async () => {
+    // Mark task as running on first batch
+    if (batch.batchIndex === 0) {
+      progress?.startTask(agent.name);
+    }
+
     // Prepare batch input with repository context
     // Include explicit base path instruction for CLI tools
     const repoPath = context.metadata.repository;
@@ -153,6 +159,41 @@ async function executeBatch(
       cwd: context.metadata.repository,
     };
 
+    // Core execution logic - shared between progress and spinner paths
+    const executeCore = async (): Promise<{ success: boolean; data: Issue[]; error?: string }> => {
+      const result = await executorFactory.executeAgent(execContext);
+      const batchIssues = parseIssues(result.output, agent.name);
+      return {
+        success: result.success,
+        data: batchIssues,
+        error: result.error,
+      };
+    };
+
+    // Use MultiProgress if available, otherwise fall back to withSpinner
+    if (progress) {
+      const startTime = Date.now();
+      try {
+        const result = await executeCore();
+        const duration = Date.now() - startTime;
+
+        if (result.success) {
+          progress.completeBatch(agent.name);
+        } else {
+          progress.failTask(agent.name);
+        }
+
+        return { ...result, duration };
+      } catch (error) {
+        const duration = Date.now() - startTime;
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        progress.failTask(agent.name);
+
+        return { success: false, data: [], error: errorMessage, duration };
+      }
+    }
+
+    // Fallback to withSpinner for quiet/stream/verbose modes
     return withSpinner(
       {
         label: agent.name,
@@ -160,17 +201,8 @@ async function executeBatch(
         totalBatches: batches.length,
       },
       context.quiet ?? false,
-      async () => {
-        const result = await executorFactory.executeAgent(execContext);
-        const batchIssues = parseIssues(result.output, agent.name);
-
-        return {
-          success: result.success,
-          data: batchIssues,
-          error: result.error,
-        };
-      },
-      (issues, duration) =>
+      executeCore,
+      (_issues, duration) =>
         batches.length > 1
           ? `${agent.name} (batch ${batch.batchIndex + 1}/${batches.length}, ${duration}ms)`
           : `${agent.name} (${duration}ms)`,
@@ -268,28 +300,34 @@ export function createReviewStage(): Stage {
           `Code Review: ${agentsToExecute.length} agent${agentsToExecute.length !== 1 ? 's' : ''} (${totalBatches} batch${totalBatches !== 1 ? 'es' : ''} total)...`
         );
 
-        // Show per-agent breakdown
-        if (agentsToExecute.length > 0 || skippedAgents.length > 0) {
-          for (const agent of agentsToExecute) {
-            const info = agentBatchInfo.get(agent.name);
-            if (info) {
-              const batchStr = info.batches.length > 1 ? `${info.batches.length} batches, ` : '';
-              const rulesCount = info.rules;
-              const maxRulesToShow = 5;
-              const visibleRules = info.ruleNames.slice(0, maxRulesToShow);
-              const rulesStr = visibleRules.join(', ');
-              const hasMore = rulesCount > maxRulesToShow;
-              const rulesListStr = hasMore ? `(${rulesStr}, ...)` : `(${rulesStr})`;
-              log.plain(
-                `  • ${agent.name}: ${batchStr}${info.files} file${info.files !== 1 ? 's' : ''} ← ${rulesCount} rule${rulesCount !== 1 ? 's' : ''} ${rulesListStr}`
-              );
-            }
-          }
-          // Show skipped agents
-          for (const agent of skippedAgents) {
-            log.plain(`  • ${agent.name}: skipped (no matching rules)`);
+        // Show skipped agents
+        for (const agent of skippedAgents) {
+          log.plain(`  • ${agent.name}: skipped (no matching rules)`);
+        }
+      }
+
+      // Create MultiProgress (only when not quiet/stream/verbose)
+      const useMultiProgress = !context.quiet && !context.stream && !context.verbose;
+      const progress = useMultiProgress ? new MultiProgress() : undefined;
+
+      // Add tasks to progress with file/rule counts for ETA
+      if (progress) {
+        for (const agent of agentsToExecute) {
+          const info = agentBatchInfo.get(agent.name);
+          if (info) {
+            const rulesStr = info.ruleNames.slice(0, 3).join(', ');
+            const detail = `${info.files} files | ${rulesStr}${info.rules > 3 ? '...' : ''}`;
+            progress.addTask(
+              agent.name,
+              agent.name,
+              info.batches.length,
+              info.files,
+              info.rules,
+              detail
+            );
           }
         }
+        progress.start();
       }
 
       // Execute all Agents in parallel (only those with batch info)
@@ -329,7 +367,8 @@ export function createReviewStage(): Stage {
                   systemPrompt,
                   systemTokens,
                   context,
-                  limit
+                  limit,
+                  progress
                 )
               )
             );
@@ -363,6 +402,9 @@ export function createReviewStage(): Stage {
           }
         })
       );
+
+      // Stop progress display
+      progress?.stop();
 
       const successCount = results.filter((r) => r?.success).length;
       const failedAgents = results.filter((r) => r && !r.success);
