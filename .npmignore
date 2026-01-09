@@ -1,0 +1,17 @@
+# Binaries (published separately)
+dist/diffray
+dist/diffray-*
+dist/*.exe
+
+# Source (not needed for npm)
+src/**
+!src/defaults
+
+# Dev files
+*.test.ts
+*.spec.ts
+bin/
+tsconfig.json
+eslint.config.js
+.prettierrc
+bun.lock
