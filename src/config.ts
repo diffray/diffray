@@ -15,7 +15,23 @@ const ExecutorConfigSchema = z.object({
 });
 
 export const ConfigSchema = z.object({
-  excludePatterns: z.array(z.string()).default(['*.lock', '*.min.js', 'dist/*', 'node_modules/**']),
+  excludePatterns: z
+    .array(z.string())
+    .default([
+      '*.min.js',
+      '*.min.css',
+      '*.map',
+      '*.d.ts',
+      'dist/**',
+      'build/**',
+      'out/**',
+      '.next/**',
+      'coverage/**',
+      'node_modules/**',
+      'vendor/**',
+      '*.generated.*',
+      '*.bundle.js',
+    ]),
   concurrency: z.number().min(1).max(10).default(3),
   output: z
     .object({
