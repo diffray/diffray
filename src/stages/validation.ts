@@ -34,9 +34,26 @@ import { loadAgentMarkdown } from '../agents/md-loader';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
 
-// ============ Batching Configuration ============
+// ============ Configuration ============
 
 const VALIDATION_BATCH_SIZE = 15; // Issues per batch
+
+// Similarity scoring weights (total = 100)
+// These weights determine how much each attribute contributes to issue matching
+const SIMILARITY_SCORE = {
+  FILE_EXACT_MATCH: 40, // Full file path matches exactly
+  FILE_PARTIAL_MATCH: 30, // File path ends with or contains the other
+  LINE_OVERLAP: 30, // Line ranges overlap or are within tolerance
+  LINE_NEARBY: 15, // Lines within extended tolerance (fallback)
+  DESCRIPTION: 30, // Word overlap in descriptions
+} as const;
+
+// Thresholds for similarity matching
+const SIMILARITY_THRESHOLD = {
+  MINIMUM_SCORE: 40, // Minimum score to consider a match (file must match)
+  LINE_TOLERANCE: 5, // Lines within this range count as overlapping
+  LINE_EXTENDED_TOLERANCE: 20, // Extended range for partial line match score
+} as const;
 
 // ============ Validation Agent Loading ============
 
@@ -108,14 +125,14 @@ function normalizeFilePath(filePath: string): string {
 }
 
 /**
- * Check if two line ranges overlap or are close
+ * Check if two line ranges overlap or are within tolerance
  */
 function linesOverlapOrClose(
   line1Start: number,
   line1End: number,
   line2Start: number,
   line2End: number,
-  tolerance: number = 5
+  tolerance: number = SIMILARITY_THRESHOLD.LINE_TOLERANCE
 ): boolean {
   // Check if ranges overlap
   if (line1Start <= line2End && line2Start <= line1End) {
@@ -132,6 +149,7 @@ function linesOverlapOrClose(
 
 /**
  * Calculate similarity score between two issues (0-100)
+ * Score breakdown: file match + line match + description match
  */
 function calculateIssueSimilarity(
   original: IndexedIssue,
@@ -139,41 +157,58 @@ function calculateIssueSimilarity(
 ): number {
   let score = 0;
 
-  // File match (required - 40 points)
-  if (returned.file) {
-    const normalizedOriginal = normalizeFilePath(original.file);
-    const normalizedReturned = normalizeFilePath(returned.file);
-    if (normalizedOriginal === normalizedReturned) {
-      score += 40;
-    } else if (
-      normalizedOriginal.endsWith(normalizedReturned) ||
-      normalizedReturned.endsWith(normalizedOriginal)
-    ) {
-      score += 30; // Partial path match
-    } else {
-      return 0; // File must match at least partially
-    }
-  } else {
+  // File match (required for any match)
+  if (!returned.file) {
     return 0;
   }
 
-  // Line range match (30 points)
+  const normalizedOriginal = normalizeFilePath(original.file);
+  const normalizedReturned = normalizeFilePath(returned.file);
+
+  if (normalizedOriginal === normalizedReturned) {
+    score += SIMILARITY_SCORE.FILE_EXACT_MATCH;
+  } else if (
+    normalizedOriginal.endsWith(normalizedReturned) ||
+    normalizedReturned.endsWith(normalizedOriginal)
+  ) {
+    score += SIMILARITY_SCORE.FILE_PARTIAL_MATCH;
+  } else {
+    return 0; // File must match at least partially
+  }
+
+  // Line range match
   if (typeof returned.lineStart === 'number') {
     const returnedEnd = returned.lineEnd ?? returned.lineStart;
-    if (linesOverlapOrClose(original.lineStart, original.lineEnd, returned.lineStart, returnedEnd)) {
-      score += 30;
-    } else if (Math.abs(original.lineStart - returned.lineStart) <= 20) {
-      score += 15; // Within 20 lines
+    if (
+      linesOverlapOrClose(original.lineStart, original.lineEnd, returned.lineStart, returnedEnd)
+    ) {
+      score += SIMILARITY_SCORE.LINE_OVERLAP;
+    } else if (
+      Math.abs(original.lineStart - returned.lineStart) <=
+      SIMILARITY_THRESHOLD.LINE_EXTENDED_TOLERANCE
+    ) {
+      score += SIMILARITY_SCORE.LINE_NEARBY;
     }
   }
 
-  // Description similarity (30 points)
+  // Description similarity (word overlap)
   if (returned.shortDescription && original.shortDescription) {
-    const origWords = new Set(original.shortDescription.toLowerCase().split(/\W+/).filter(w => w.length > 3));
-    const retWords = new Set(returned.shortDescription.toLowerCase().split(/\W+/).filter(w => w.length > 3));
-    const intersection = [...origWords].filter(w => retWords.has(w));
+    const minWordLength = 3;
+    const origWords = new Set(
+      original.shortDescription
+        .toLowerCase()
+        .split(/\W+/)
+        .filter((w) => w.length >= minWordLength)
+    );
+    const retWords = new Set(
+      returned.shortDescription
+        .toLowerCase()
+        .split(/\W+/)
+        .filter((w) => w.length >= minWordLength)
+    );
+    const intersection = [...origWords].filter((w) => retWords.has(w));
     const similarity = intersection.length / Math.max(origWords.size, retWords.size, 1);
-    score += Math.round(similarity * 30);
+    score += Math.round(similarity * SIMILARITY_SCORE.DESCRIPTION);
   }
 
   return score;
@@ -234,8 +269,7 @@ function parseValidatedIds(output: string, batch?: IndexedIssue[]): number[] {
               if (matchedIds.has(indexed.id)) continue;
 
               const score = calculateIssueSimilarity(indexed, returnedIssue);
-              if (score > bestScore && score >= 40) {
-                // Minimum 40 points (file must match)
+              if (score > bestScore && score >= SIMILARITY_THRESHOLD.MINIMUM_SCORE) {
                 bestScore = score;
                 bestMatch = indexed;
               }
@@ -278,15 +312,14 @@ function filterByIds(
 /**
  * Get executor for validation agent with settings applied
  */
-function getValidationExecutor(
-  agent: Agent,
-  context: PipelineContext
-): AgentExecutor | null {
+function getValidationExecutor(agent: Agent, context: PipelineContext): AgentExecutor | null {
   const executor = getExecutor(agent.executor);
 
   if (!executor || !executor.enabled) {
     if (!context.quiet) {
-      log.warn(`Validation executor '${agent.executor}' not found or disabled, skipping validation`);
+      log.warn(
+        `Validation executor '${agent.executor}' not found or disabled, skipping validation`
+      );
     }
     return null;
   }
@@ -336,7 +369,9 @@ async function executeValidationBatch(
     context.metadata.baseRef ? `Base ref: ${context.metadata.baseRef}` : null,
     context.metadata.headRef ? `Head ref: ${context.metadata.headRef}` : null,
     commitMessagesSection,
-  ].filter(Boolean).join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');
 
   // Combine repository context with formatted issues
   const inputWithContext = `${repoContext}\n\n# Issues to validate (${batch.length} total):\n\n${issuesFormatted}`;
@@ -484,7 +519,9 @@ export function createValidationStage(): Stage {
           log.sync(`Validating ${allIssues.length} issue(s)...`);
         }
         if (context.verbose) {
-          log.plain(`   Executor: ${finalExecutor.name}${executorModel ? ` (model: ${executorModel})` : ''}`);
+          log.plain(
+            `   Executor: ${finalExecutor.name}${executorModel ? ` (model: ${executorModel})` : ''}`
+          );
         }
       }
 
@@ -527,7 +564,9 @@ export function createValidationStage(): Stage {
 
         // Log final summary
         if (!context.quiet) {
-          log.done(`Validation complete: ${validCount} valid, ${invalidCount} filtered out (${duration}ms)`);
+          log.done(
+            `Validation complete: ${validCount} valid, ${invalidCount} filtered out (${duration}ms)`
+          );
         }
 
         return {

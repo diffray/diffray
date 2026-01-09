@@ -27,7 +27,7 @@ export const StageConfigSchema = z.object({
 const BUILTIN_STAGES = {
   'load-rules': createLoadRulesStage,
   'match-rules': createMatchRulesStage,
-  'review': createReviewStage,
+  review: createReviewStage,
   'aggregate-results': createAggregateResultsStage,
   deduplication: createDeduplicationStage,
   validation: createValidationStage,

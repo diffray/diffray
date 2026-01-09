@@ -4,53 +4,39 @@ import { listRules, showRule, testRule } from '../../commands/rules.js';
 export const rulesCmd = defineCommand({
   meta: {
     name: 'rules',
-    description: 'Manage review rules',
+    description: `List rules or show rule details
+
+Examples:
+  diffray rules                          # List all rules
+  diffray rules simplicity               # Show simplicity rule details
+  diffray rules test simplicity src/*.ts # Test rule pattern matching`,
   },
-  subCommands: {
-    list: {
-      meta: {
-        description: 'List all rules',
-      },
-      run: () => {
-        listRules();
-      },
+  args: {
+    name: {
+      type: 'positional',
+      description: 'Rule name or "test" subcommand',
+      required: false,
     },
-    show: {
-      meta: {
-        description: 'Show rule details',
-      },
-      args: {
-        id: {
-          type: 'positional',
-          description: 'Rule ID',
-          required: true,
-        },
-      },
-      run: ({ args }) => {
-        showRule(args.id!);
-      },
+    rest: {
+      type: 'positional',
+      description: 'For test: <rule-name> <files...>',
+      required: false,
     },
-    test: {
-      meta: {
-        description: 'Test rule matching against files',
-      },
-      args: {
-        id: {
-          type: 'positional',
-          description: 'Rule ID',
-          required: true,
-        },
-        files: {
-          type: 'positional',
-          description: 'File paths to test',
-          required: true,
-        },
-      },
-      run: ({ args, rawArgs }) => {
-        // rawArgs contains all positional args after the subcommand
-        const files = rawArgs.slice(1); // Skip the rule ID
-        testRule(args.id!, files.length > 0 ? files : [args.files!]);
-      },
-    },
+  },
+  run: async ({ args }) => {
+    if (args.name === 'test') {
+      const restArgs = (args._ || []) as string[];
+      const ruleName = restArgs[0];
+      const files = restArgs.slice(1);
+      if (!ruleName || files.length === 0) {
+        console.error('Usage: diffray rules test <rule-name> <files...>');
+        process.exit(1);
+      }
+      await testRule(ruleName, files);
+    } else if (args.name) {
+      await showRule(args.name);
+    } else {
+      await listRules();
+    }
   },
 });

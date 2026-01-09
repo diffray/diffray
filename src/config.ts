@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { join } from 'path';
 import { homedir } from 'os';
+import { readFile, writeFile, mkdir, access } from 'node:fs/promises';
 import { getCached, setCache, invalidateCache, CACHE_KEYS } from './cache';
 
 // Schema for saved executor overrides (partial config stored in config.json)
@@ -39,11 +40,22 @@ export function getDefaultConfig(): Config {
   return ConfigSchema.parse({});
 }
 
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return false;
+    }
+    throw error;
+  }
+}
+
 export async function loadConfig(): Promise<Config> {
   return getCached(CACHE_KEYS.CONFIG, async () => {
     try {
-      const file = Bun.file(CONFIG_FILE);
-      const exists = await file.exists();
+      const exists = await fileExists(CONFIG_FILE);
 
       if (!exists) {
         const defaultConfig = getDefaultConfig();
@@ -51,7 +63,7 @@ export async function loadConfig(): Promise<Config> {
         return defaultConfig;
       }
 
-      const content = await file.text();
+      const content = await readFile(CONFIG_FILE, 'utf-8');
       const json = JSON.parse(content);
       return ConfigSchema.parse(json);
     } catch (error) {
@@ -63,8 +75,8 @@ export async function loadConfig(): Promise<Config> {
 
 export async function saveConfig(config: Config): Promise<void> {
   try {
-    await Bun.$`mkdir -p ${CONFIG_DIR}`.quiet();
-    await Bun.write(CONFIG_FILE, JSON.stringify(config, null, 2));
+    await mkdir(CONFIG_DIR, { recursive: true });
+    await writeFile(CONFIG_FILE, JSON.stringify(config, null, 2));
     setCache(CACHE_KEYS.CONFIG, config);
   } catch (error) {
     throw new Error(`Failed to save config: ${error}`);
@@ -98,8 +110,7 @@ export async function resetConfig(): Promise<Config> {
 }
 
 export async function configExists(): Promise<boolean> {
-  const file = Bun.file(CONFIG_FILE);
-  return await file.exists();
+  return fileExists(CONFIG_FILE);
 }
 
 export function invalidateConfigCache(): void {
@@ -114,14 +125,11 @@ export function invalidateConfigCache(): void {
 export async function loadInstructions(): Promise<string> {
   return getCached(CACHE_KEYS.INSTRUCTIONS, async () => {
     try {
-      const file = Bun.file(INSTRUCTIONS_FILE);
-      const exists = await file.exists();
-
+      const exists = await fileExists(INSTRUCTIONS_FILE);
       if (!exists) {
         return '';
       }
-
-      return await file.text();
+      return await readFile(INSTRUCTIONS_FILE, 'utf-8');
     } catch {
       return '';
     }

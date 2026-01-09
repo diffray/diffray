@@ -2,6 +2,7 @@
  * Claude CLI Executor - streaming JSON parsing for Claude Code CLI
  */
 
+import { spawn } from 'node:child_process';
 import type { StreamOptions } from './types';
 import { log } from '../logger';
 import { parseIssues } from '../issue-parser';
@@ -25,8 +26,20 @@ function formatPreliminaryIssues(result: string, agentName: string): void {
 /**
  * Parse a single streaming message and handle output
  */
+interface StreamMessage {
+  type?: string;
+  subtype?: string;
+  tools?: unknown[];
+  model?: string;
+  message?: { content?: Array<{ type: string; name?: string; text?: string }> };
+  total_cost_usd?: number;
+  duration_ms?: number;
+  result?: string;
+  error?: string;
+}
+
 function handleStreamMessage(
-  message: any,
+  message: StreamMessage,
   line: string,
   opts: StreamOptions
 ): string | null {
@@ -57,12 +70,8 @@ function handleStreamMessage(
   // Handle result message
   if (message.type === 'result') {
     if (opts.stream && !opts.verbose) {
-      const cost = message.total_cost_usd
-        ? `$${message.total_cost_usd.toFixed(4)}`
-        : '';
-      const duration = message.duration_ms
-        ? `${(message.duration_ms / 1000).toFixed(1)}s`
-        : '';
+      const cost = message.total_cost_usd ? `$${message.total_cost_usd.toFixed(4)}` : '';
+      const duration = message.duration_ms ? `${(message.duration_ms / 1000).toFixed(1)}s` : '';
       log.plain(`\x1b[90m📊 ${duration} ${cost}\x1b[0m`);
     }
 
@@ -85,11 +94,15 @@ export async function streamClaudeCli(
   timeout: number,
   opts: StreamOptions
 ): Promise<string> {
+  if (cmdArgs.length === 0) {
+    throw new Error('No command provided to streamClaudeCli');
+  }
+
   ensureSigintHandler();
 
-  const proc = Bun.spawn(cmdArgs, {
-    stdout: 'pipe',
-    stderr: 'pipe',
+  const [command, ...args] = cmdArgs;
+  const proc = spawn(command!, args, {
+    stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, ...env },
     cwd: opts.cwd,
   });
@@ -98,19 +111,15 @@ export async function streamClaudeCli(
   const timeoutMs = timeout * 1000;
   const timer = setTimeout(() => gracefulKillSync(proc, 2000), timeoutMs);
 
-  let finalResult = '';
-  let stderrText = '';
-
-  try {
-    const reader = proc.stdout.getReader();
-    const decoder = new TextDecoder();
+  return new Promise((resolve, reject) => {
+    let finalResult = '';
     let buffer = '';
+    const stderrChunks: Buffer[] = [];
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    proc.stderr?.on('data', (data) => stderrChunks.push(data));
 
-      buffer += decoder.decode(value, { stream: true });
+    proc.stdout?.on('data', (data: Buffer) => {
+      buffer += data.toString('utf-8');
       const lines = buffer.split('\n');
       buffer = lines.pop() || '';
 
@@ -127,42 +136,51 @@ export async function streamClaudeCli(
               formatPreliminaryIssues(finalResult, opts.agentName);
             }
           }
-        } catch (e) {
+        } catch {
           if (process.env.DEBUG) {
             log.plain(`📡 Stream parse error: ${line}`);
           }
         }
       }
-    }
+    });
 
-    // Handle remaining buffer
-    if (buffer.trim()) {
-      try {
-        const message = JSON.parse(buffer);
-        if (message.type === 'result' && message.subtype === 'success' && message.result) {
-          finalResult = message.result;
+    proc.on('close', (exitCode) => {
+      clearTimeout(timer);
+
+      // Handle remaining buffer
+      if (buffer.trim()) {
+        try {
+          const message = JSON.parse(buffer);
+          if (message.type === 'result' && message.subtype === 'success' && message.result) {
+            finalResult = message.result;
+          }
+        } catch {
+          // Ignore final buffer parse errors
         }
-      } catch {
-        // Ignore final buffer parse errors
       }
-    }
 
-    stderrText = await new Response(proc.stderr).text();
-    await proc.exited;
-    clearTimeout(timer);
+      const stderrText = Buffer.concat(stderrChunks).toString('utf-8');
 
-    if (proc.exitCode === null) {
-      throw new Error(`Process killed (timeout after ${timeout}s or signal)${stderrText ? `: ${stderrText}` : ''}`);
-    }
+      if (exitCode === null) {
+        reject(
+          new Error(
+            `Process killed (timeout after ${timeout}s or signal)${stderrText ? `: ${stderrText}` : ''}`
+          )
+        );
+        return;
+      }
 
-    if (proc.exitCode !== 0) {
-      throw new Error(`Exit code ${proc.exitCode}: ${stderrText}`);
-    }
+      if (exitCode !== 0) {
+        reject(new Error(`Exit code ${exitCode}: ${stderrText}`));
+        return;
+      }
 
-    return finalResult;
-  } catch (e) {
-    clearTimeout(timer);
-    gracefulKillSync(proc, 1000);
-    throw e;
-  }
+      resolve(finalResult);
+    });
+
+    proc.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
 }

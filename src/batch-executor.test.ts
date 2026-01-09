@@ -29,7 +29,10 @@ describe('chunk', () => {
 
   test('should handle exact divisible arrays', () => {
     const result = chunk([1, 2, 3, 4], 2);
-    expect(result).toEqual([[1, 2], [3, 4]]);
+    expect(result).toEqual([
+      [1, 2],
+      [3, 4],
+    ]);
   });
 
   test('should throw for size < 1', () => {
@@ -130,7 +133,7 @@ describe('executeBatches', () => {
     const batches = [1, 2, 3];
     const results = await executeBatches(
       batches,
-      async (batch, idx, total) => ({
+      async (batch, _idx, _total) => ({
         success: true,
         data: batch * 2,
       }),
@@ -259,9 +262,7 @@ describe('collectData', () => {
   });
 
   test('should return empty array if all failed', () => {
-    const results: BatchResult<number[]>[] = [
-      { success: false, data: [1], error: 'Failed' },
-    ];
+    const results: BatchResult<number[]>[] = [{ success: false, data: [1], error: 'Failed' }];
     expect(collectData(results)).toEqual([]);
   });
 });

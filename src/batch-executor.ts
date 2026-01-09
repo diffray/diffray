@@ -119,9 +119,7 @@ export async function executeBatches<TBatch, TResult>(
   const limit = createLimiter(config.concurrency);
 
   return Promise.all(
-    batches.map((batch, index) =>
-      limit(() => executor(batch, index, batches.length))
-    )
+    batches.map((batch, index) => limit(() => executor(batch, index, batches.length)))
   );
 }
 

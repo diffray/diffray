@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import {
   loadConfig,
   saveConfig,
@@ -170,10 +171,9 @@ export async function editConfig(): Promise<void> {
   const editor = process.env.EDITOR || 'nano';
   log.info(`Opening ${path} in ${editor}...`);
 
-  try {
-    await Bun.$`${editor} ${path}`;
-  } catch (error) {
-    log.error(`Failed to open editor: ${error}`);
+  const result = spawnSync(editor, [path], { stdio: 'inherit' });
+  if (result.error) {
+    log.error(`Failed to open editor: ${result.error.message}`);
     process.exit(1);
   }
 }

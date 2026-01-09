@@ -2,7 +2,15 @@
  * Stage 2: Review - Run code review agents
  */
 
-import type { Stage, StageResult, PipelineContext, ExecutionContext, AgentResult, Issue } from '../types';
+import type {
+  Stage,
+  StageResult,
+  PipelineContext,
+  ExecutionContext,
+  AgentResult,
+  Issue,
+  Agent,
+} from '../types';
 import { agentRegistry } from '../agents/registry';
 import { executorFactory } from '../executors';
 import { log } from '../logger';
@@ -17,6 +25,7 @@ interface BatchInfo {
   batches: ReturnType<typeof batchDiffs>;
   files: number;
   rules: number;
+  ruleNames: string[];
   systemPrompt: string;
 }
 
@@ -24,7 +33,7 @@ interface BatchInfo {
 type AgentBatchResult = BatchResult<Issue[]>;
 
 async function prepareBatchInfo(
-  enabledAgents: any[],
+  enabledAgents: Agent[],
   context: PipelineContext,
   instructions: string | null
 ): Promise<Map<string, BatchInfo>> {
@@ -64,10 +73,12 @@ async function prepareBatchInfo(
 
     // Calculate batches
     const batches = batchDiffs(agentDiffs, systemPrompt);
+    const ruleNames = matchedRules.map((mr) => mr.rule.name);
     agentBatchInfo.set(agent.name, {
       batches,
       files: agentDiffs.length,
       rules: matchedRules.length,
+      ruleNames,
       systemPrompt,
     });
   }
@@ -78,12 +89,12 @@ async function prepareBatchInfo(
 async function executeBatch(
   batch: ReturnType<typeof batchDiffs>[0],
   batches: ReturnType<typeof batchDiffs>,
-  agent: any,
-  executor: any,
+  agent: Agent,
+  executor: NonNullable<ReturnType<typeof executorFactory.get>>,
   systemPrompt: string,
   systemTokens: number,
   context: PipelineContext,
-  limit: any
+  limit: ReturnType<typeof createLimiter>
 ): Promise<AgentBatchResult> {
   return limit(async () => {
     // Prepare batch input with repository context
@@ -96,7 +107,9 @@ async function executeBatch(
       `When using tools to read files, prepend this base path to get absolute paths.`,
       context.metadata.baseRef ? `Base ref: ${context.metadata.baseRef}` : null,
       context.metadata.headRef ? `Head ref: ${context.metadata.headRef}` : null,
-    ].filter(Boolean).join('\n');
+    ]
+      .filter(Boolean)
+      .join('\n');
 
     const batchDiffsText = `${repoContext}\n\n${batch.diffs
       .map((diff) => `File: ${diff.file}\n${diff.diff}`)
@@ -113,9 +126,7 @@ async function executeBatch(
       const summarizedPrompt = `${systemPrompt}\n\n# Input:\n${summarizedInput}`;
 
       log.newline();
-      log.plain(
-        `Prompt for ${agent.name} (batch ${batch.batchIndex + 1}/${batches.length}):`
-      );
+      log.plain(`Prompt for ${agent.name} (batch ${batch.batchIndex + 1}/${batches.length}):`);
       log.plain(
         `   Tokens: ${batch.tokenCount.toLocaleString()} (~${systemTokens.toLocaleString()} system + ~${inputTokens.toLocaleString()} input)`
       );
@@ -173,7 +184,7 @@ async function executeBatch(
 
 function aggregateBatchResults(
   batchResults: AgentBatchResult[],
-  agent: any,
+  agent: Agent,
   batches: ReturnType<typeof batchDiffs>
 ): AgentResult {
   // Collect all issues and calculate total duration
@@ -246,14 +257,15 @@ export function createReviewStage(): Stage {
         totalBatches += info.batches.length;
       }
 
-      // Count agents that will actually execute
-      const agentsToExecute = enabledAgents.filter((a) => agentBatchInfo.has(a.name));
-      const skippedAgents = enabledAgents.filter((a) => !agentBatchInfo.has(a.name));
+      // Count agents that will actually execute (only review stage agents)
+      const reviewAgents = enabledAgents.filter((a) => a.stage !== 'validation');
+      const agentsToExecute = reviewAgents.filter((a) => agentBatchInfo.has(a.name));
+      const skippedAgents = reviewAgents.filter((a) => !agentBatchInfo.has(a.name));
 
       // Show enhanced summary
       if (!context.quiet) {
         log.sync(
-          `Executing ${agentsToExecute.length} Agent(s) (${totalBatches} batch${totalBatches !== 1 ? 'es' : ''} total)...`
+          `Code Review: ${agentsToExecute.length} agent${agentsToExecute.length !== 1 ? 's' : ''} (${totalBatches} batch${totalBatches !== 1 ? 'es' : ''} total)...`
         );
 
         // Show per-agent breakdown
@@ -261,8 +273,15 @@ export function createReviewStage(): Stage {
           for (const agent of agentsToExecute) {
             const info = agentBatchInfo.get(agent.name);
             if (info) {
+              const batchStr = info.batches.length > 1 ? `${info.batches.length} batches, ` : '';
+              const rulesCount = info.rules;
+              const maxRulesToShow = 5;
+              const visibleRules = info.ruleNames.slice(0, maxRulesToShow);
+              const rulesStr = visibleRules.join(', ');
+              const hasMore = rulesCount > maxRulesToShow;
+              const rulesListStr = hasMore ? `(${rulesStr}, ...)` : `(${rulesStr})`;
               log.plain(
-                `  • ${agent.name}: ${info.batches.length} batch${info.batches.length !== 1 ? 'es' : ''}, ${info.rules} rule${info.rules !== 1 ? 's' : ''}, ${info.files} file${info.files !== 1 ? 's' : ''}`
+                `  • ${agent.name}: ${batchStr}${info.files} file${info.files !== 1 ? 's' : ''} ← ${rulesCount} rule${rulesCount !== 1 ? 's' : ''} ${rulesListStr}`
               );
             }
           }
@@ -302,7 +321,16 @@ export function createReviewStage(): Stage {
             // Execute batches with concurrency limit
             const batchResults = await Promise.all(
               batches.map((batch) =>
-                executeBatch(batch, batches, agent, executor, systemPrompt, systemTokens, context, limit)
+                executeBatch(
+                  batch,
+                  batches,
+                  agent,
+                  executor,
+                  systemPrompt,
+                  systemTokens,
+                  context,
+                  limit
+                )
               )
             );
 

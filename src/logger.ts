@@ -3,6 +3,8 @@
  * Centralized logging - maximally fast and simple
  */
 
+import { homedir } from 'node:os';
+
 // ANSI color codes
 const colors = {
   reset: '\x1b[0m',
@@ -120,6 +122,28 @@ export const log = {
   // Empty line
   newline: () => console.log(),
 };
+
+/**
+ * Format path for display (shorten common prefixes)
+ * - Replaces home directory with ~
+ * - Replaces current working directory with .
+ * - Preserves embedded: prefix as-is
+ */
+export function formatPath(path?: string): string {
+  if (!path) return '-';
+  if (path.startsWith('embedded:')) return path;
+
+  const home = homedir();
+  const cwd = process.cwd();
+
+  if (path.startsWith(home)) {
+    return '~' + path.slice(home.length);
+  }
+  if (path.startsWith(cwd)) {
+    return '.' + path.slice(cwd.length);
+  }
+  return path;
+}
 
 /**
  * Timer for performance measurement

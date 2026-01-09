@@ -10,7 +10,7 @@ type LimitFunction = <T>(fn: () => Promise<T>) => Promise<T>;
  */
 export function createLimiter(concurrency: number): LimitFunction {
   if (concurrency < 1) {
-    throw new Error("Concurrency must be at least 1");
+    throw new Error('Concurrency must be at least 1');
   }
 
   const queue: (() => void)[] = [];

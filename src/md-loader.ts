@@ -1,11 +1,11 @@
 import { log } from './logger.js';
-import { Glob } from 'bun';
-import { join, basename } from 'node:path';
+import { glob } from 'glob';
+import { readFile } from 'node:fs/promises';
+import { join, basename, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { dirname } from 'node:path';
 import { homedir } from 'node:os';
+import YAML from 'yaml';
 import type { ConfigSource } from './types.js';
-import { embeddedAgents, embeddedRules, embeddedPrompts } from './generated/embedded-defaults.js';
 
 type FrontmatterValue = string | number | boolean | null | FrontmatterValue[];
 export type Frontmatter = Record<string, FrontmatterValue>;
@@ -36,10 +36,9 @@ function parseFrontmatter(content: string): ParsedMarkdown {
     return { frontmatter: {}, body };
   }
 
-  // Use Bun's native YAML parser
   let frontmatter: Frontmatter;
   try {
-    frontmatter = Bun.YAML.parse(frontmatterText) as Frontmatter;
+    frontmatter = YAML.parse(frontmatterText) as Frontmatter;
   } catch (e) {
     throw new Error(`Invalid YAML in frontmatter: ${e instanceof Error ? e.message : String(e)}`);
   }
@@ -70,8 +69,7 @@ export async function loadMarkdownFile<T>(
   builder?: MarkdownBuilder<T>
 ): Promise<ParsedMarkdown | T[]> {
   try {
-    const file = Bun.file(filePath);
-    const content = await file.text();
+    const content = await readFile(filePath, 'utf-8');
 
     if (!builder) {
       return parseFrontmatter(content);
@@ -92,12 +90,7 @@ export async function loadMarkdownDirectory<T>(
   postProcess?: (items: T[]) => T[]
 ): Promise<T[]> {
   try {
-    const glob = new Glob('*.md');
-    const mdFiles: string[] = [];
-
-    for await (const file of glob.scan(dirPath)) {
-      mdFiles.push(file);
-    }
+    const mdFiles = await glob('*.md', { cwd: dirPath });
 
     if (mdFiles.length === 0) {
       log.warn(`No .md files found in directory: ${dirPath}`);
@@ -139,13 +132,7 @@ export async function loadMarkdownDirectoryRecursive<T>(
   postProcess?: (items: T[]) => T[]
 ): Promise<T[]> {
   try {
-    // Use **/*.md pattern for recursive search
-    const glob = new Glob('**/*.md');
-    const mdFiles: string[] = [];
-
-    for await (const file of glob.scan(dirPath)) {
-      mdFiles.push(file);
-    }
+    const mdFiles = await glob('**/*.md', { cwd: dirPath });
 
     if (mdFiles.length === 0) {
       return [];
@@ -207,72 +194,6 @@ function getPriorityPaths(
   };
 }
 
-let _isEmbedded: boolean | null = null;
-
-// Cache for parsed embedded content - since it's static, parse only once
-const _embeddedCache: {
-  agents: unknown[] | null;
-  rules: unknown[] | null;
-  prompts: unknown[] | null;
-  ruleRefs: RuleRefData[] | null;
-} = {
-  agents: null,
-  rules: null,
-  prompts: null,
-  ruleRefs: null,
-};
-
-async function isEmbeddedMode(): Promise<boolean> {
-  if (_isEmbedded !== null) return _isEmbedded;
-  
-  const currentFile = fileURLToPath(import.meta.url);
-  const currentDir = dirname(currentFile);
-  const testPath = join(currentDir, 'defaults', 'agents');
-  
-  try {
-    const glob = new Glob('*.md');
-    let found = false;
-    for await (const _ of glob.scan(testPath)) {
-      found = true;
-      break;
-    }
-    _isEmbedded = !found;
-  } catch {
-    _isEmbedded = true;
-  }
-  
-  return _isEmbedded;
-}
-
-function loadFromEmbedded<T>(
-  subdir: 'agents' | 'rules' | 'prompts',
-  builder: MarkdownBuilder<T>
-): T[] {
-  // Return cached result if available
-  const cached = _embeddedCache[subdir];
-  if (cached !== null) {
-    return cached as T[];
-  }
-
-  const embedded = subdir === 'agents' ? embeddedAgents
-    : subdir === 'rules' ? embeddedRules
-    : embeddedPrompts;
-
-  const items: T[] = [];
-  for (const [filename, content] of Object.entries(embedded)) {
-    try {
-      const parsed = parseMarkdown(content, builder);
-      items.push(...parsed);
-    } catch (error) {
-      log.error(`Error parsing embedded ${filename}:`, error);
-    }
-  }
-
-  // Cache the result
-  _embeddedCache[subdir] = items as unknown[];
-  return items;
-}
-
 /**
  * Load items from 3 priority levels and merge by name
  * Priority: defaults < user < project (project overrides all)
@@ -280,22 +201,12 @@ function loadFromEmbedded<T>(
 export async function loadWithPriority<T extends { name: string }>(
   subdir: string,
   loader: (dirPath: string) => Promise<T[]>,
-  projectPath: string,
-  builder?: MarkdownBuilder<T>
+  projectPath: string
 ): Promise<T[]> {
   const paths = getPriorityPaths(subdir, projectPath);
-  
-  // Check if we need to use embedded defaults
-  const useEmbedded = await isEmbeddedMode();
-  
-  let defaults: T[] = [];
-  if (useEmbedded && builder && (subdir === 'agents' || subdir === 'rules' || subdir === 'prompts')) {
-    defaults = loadFromEmbedded(subdir, builder);
-  } else {
-    defaults = await loader(paths.defaults);
-  }
-  
-  const [user, project] = await Promise.all([
+
+  const [defaults, user, project] = await Promise.all([
+    loader(paths.defaults),
     loader(paths.user),
     loader(paths.project),
   ]);
@@ -318,16 +229,28 @@ export interface RuleRefData {
 
 export async function scanRuleRefs(dirPath: string, source: ConfigSource): Promise<RuleRefData[]> {
   try {
-    const glob = new Glob('**/*.md');
+    const mdFiles = await glob('**/*.md', { cwd: dirPath });
+
+    // Read all files in parallel
+    const fileContents = await Promise.all(
+      mdFiles.map(async (file) => {
+        const filePath = join(dirPath, file);
+        try {
+          const content = await readFile(filePath, 'utf-8');
+          return { filePath, content };
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    // Process contents and build refs
     const refs: RuleRefData[] = [];
+    for (const result of fileContents) {
+      if (!result) continue;
 
-    for await (const file of glob.scan(dirPath)) {
-      const filePath = join(dirPath, file);
       try {
-        const content = await Bun.file(filePath).text();
-        const { frontmatter } = parseFrontmatter(content);
-
-        // Extract only what we need for config (no prompt)
+        const { frontmatter } = parseFrontmatter(result.content);
         const name = frontmatter.name;
         const description = frontmatter.description;
         const agent = frontmatter.agent;
@@ -342,14 +265,14 @@ export async function scanRuleRefs(dirPath: string, source: ConfigSource): Promi
           refs.push({
             name,
             description: typeof description === 'string' ? description : '',
-            path: filePath,
+            path: result.filePath,
             patterns: patterns.filter((p): p is string => typeof p === 'string'),
             agent,
             source,
           });
         }
       } catch {
-        // Skip invalid files
+        // Skip invalid frontmatter
       }
     }
 
@@ -359,48 +282,6 @@ export async function scanRuleRefs(dirPath: string, source: ConfigSource): Promi
   }
 }
 
-function scanEmbeddedRuleRefs(): RuleRefData[] {
-  // Return cached result if available
-  if (_embeddedCache.ruleRefs !== null) {
-    return _embeddedCache.ruleRefs;
-  }
-
-  const refs: RuleRefData[] = [];
-
-  for (const [filename, content] of Object.entries(embeddedRules)) {
-    try {
-      const { frontmatter } = parseFrontmatter(content);
-
-      const name = frontmatter.name;
-      const description = frontmatter.description;
-      const agent = frontmatter.agent;
-      const patterns = frontmatter.patterns;
-
-      if (
-        typeof name === 'string' &&
-        typeof agent === 'string' &&
-        Array.isArray(patterns) &&
-        patterns.length > 0
-      ) {
-        refs.push({
-          name,
-          description: typeof description === 'string' ? description : '',
-          path: `embedded:${filename}`,
-          patterns: patterns.filter((p): p is string => typeof p === 'string'),
-          agent,
-          source: 'defaults',
-        });
-      }
-    } catch {
-      // Skip invalid content
-    }
-  }
-
-  // Cache the result
-  _embeddedCache.ruleRefs = refs;
-  return refs;
-}
-
 /**
  * Load rule refs from all priority levels
  * Returns refs with source info, merged by name (project > user > defaults)
@@ -408,13 +289,8 @@ function scanEmbeddedRuleRefs(): RuleRefData[] {
 export async function loadRuleRefsWithPriority(projectPath: string): Promise<RuleRefData[]> {
   const paths = getPriorityPaths('rules', projectPath);
 
-  const useEmbedded = await isEmbeddedMode();
-  
-  const defaults = useEmbedded 
-    ? scanEmbeddedRuleRefs()
-    : await scanRuleRefs(paths.defaults, 'defaults');
-
-  const [user, project] = await Promise.all([
+  const [defaults, user, project] = await Promise.all([
+    scanRuleRefs(paths.defaults, 'defaults'),
     scanRuleRefs(paths.user, 'user'),
     scanRuleRefs(paths.project, 'project'),
   ]);

@@ -2,6 +2,7 @@
  * Cache management commands
  */
 
+import { stat } from 'node:fs/promises';
 import { log } from '../logger';
 import { getConfigPath, loadConfig, resetConfig, invalidateConfigCache } from '../config';
 
@@ -16,15 +17,16 @@ export async function showCache(): Promise<void> {
   log.plain(`Location: ${configPath}`);
   log.newline();
 
-  // Check if config file exists
-  const configFile = Bun.file(configPath);
-  if (!(await configFile.exists())) {
+  // Check if config file exists and get stats
+  let stats;
+  try {
+    stats = await stat(configPath);
+  } catch {
     log.info('Configuration file does not exist (using defaults)');
     return;
   }
 
   // Show file information
-  const stats = await configFile.stat();
   const size = (stats.size / 1024).toFixed(2);
   const modified = stats.mtime.toLocaleString();
 

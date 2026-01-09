@@ -53,47 +53,25 @@ interface RawIssueItem {
 }
 
 /**
- * Check if a value is explicitly provided (not undefined/null)
+ * Parse line number from string or number value
+ * Returns positive number if valid, or defaultValue otherwise
  */
-function isProvided(value: unknown): boolean {
-  return value !== undefined && value !== null;
-}
+function parseLineNumber(value: string | number | undefined, defaultValue: number = 1): number {
+  if (value === undefined || value === null) return defaultValue;
 
-/**
- * Parse line number from string like "42" or number
- * Returns positive number, 0 for invalid input that was provided, or null if not provided
- */
-function parseLineNumber(value: string | number | undefined): number | null {
-  if (value === undefined || value === null) return null;
-
-  // Already a number
-  if (typeof value === 'number') {
-    return value > 0 ? value : 0; // Return 0 for invalid to distinguish from "not provided"
-  }
-
-  // String number like "42"
-  const num = parseInt(String(value).trim(), 10);
-  if (isNaN(num)) return 0; // Invalid string input
-  return num > 0 ? num : 0; // Return 0 for non-positive to distinguish from "not provided"
+  const num = typeof value === 'number' ? value : parseInt(String(value).trim(), 10);
+  return !isNaN(num) && num > 0 ? num : defaultValue;
 }
 
 /**
  * Get line start from item, trying multiple field names
- * Returns valid line number, 0 if explicitly invalid, or 1 if no field provided
+ * Only cascades if field is not provided; invalid values (0, negative) are preserved for filtering
  */
 function getLineStart(item: RawIssueItem): number {
-  // Try each field in priority order
-  if (isProvided(item.lineStart)) {
-    return parseLineNumber(item.lineStart) ?? 0;
-  }
-  if (isProvided(item.line)) {
-    return parseLineNumber(item.line) ?? 0;
-  }
-  if (isProvided(item.lineNumber)) {
-    return parseLineNumber(item.lineNumber) ?? 0;
-  }
-  // No line field provided - use default of 1
-  return 1;
+  if (item.lineStart !== undefined) return parseLineNumber(item.lineStart, 0);
+  if (item.line !== undefined) return parseLineNumber(item.line, 0);
+  if (item.lineNumber !== undefined) return parseLineNumber(item.lineNumber, 0);
+  return 1; // Default when no field provided
 }
 
 /**
@@ -103,9 +81,9 @@ function getLineStart(item: RawIssueItem): number {
 function parseIssueItem(item: RawIssueItem, agent?: string): Issue {
   const file = item.file || item.path || '';
 
-  // Parse line numbers - use getLineStart which properly handles invalid vs missing values
+  // Parse line numbers
   const lineStart = getLineStart(item);
-  const lineEnd = parseLineNumber(item.lineEnd) ?? lineStart;
+  const lineEnd = parseLineNumber(item.lineEnd, lineStart);
 
   // Map category from various field names (type is common alternative)
   const category = item.category || item.type || 'quality';

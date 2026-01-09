@@ -7,7 +7,7 @@ import {
   parseFrontmatter,
   type Frontmatter,
 } from './md-loader';
-import { embeddedRules } from './generated/embedded-defaults.js';
+import { readFile } from 'node:fs/promises';
 import { log } from './logger';
 
 // ============ Rule Markdown Parsing ============
@@ -78,25 +78,11 @@ export async function loadRuleRefs(projectPath?: string): Promise<RuleRef[]> {
 }
 
 /**
- * Load full rule content from a RuleRef (reads prompt from file or embedded)
+ * Load full rule content from a RuleRef (reads prompt from file)
  */
 export async function loadRuleFromRef(ref: RuleRef): Promise<Rule | null> {
   try {
-    let content: string;
-
-    // Check if this is an embedded rule
-    if (ref.path.startsWith('embedded:')) {
-      const filename = ref.path.replace('embedded:', '');
-      const embeddedContent = embeddedRules[filename];
-      if (!embeddedContent) {
-        log.error(`Embedded rule not found: ${filename}`);
-        return null;
-      }
-      content = embeddedContent;
-    } else {
-      content = await Bun.file(ref.path).text();
-    }
-
+    const content = await readFile(ref.path, 'utf-8');
     const { body } = parseFrontmatter(content);
 
     return {

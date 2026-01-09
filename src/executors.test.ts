@@ -1,4 +1,4 @@
-import { test, expect, describe, beforeEach } from 'bun:test';
+import { test, expect, describe } from 'bun:test';
 import {
   getExecutor,
   listExecutors,
@@ -6,7 +6,13 @@ import {
   executeAgent,
   executorFactory,
 } from './executors';
-import type { ExecutionContext, Agent, AgentExecutor, LLMAPIAgentExecutor, CLIAgentExecutor } from './types';
+import type {
+  ExecutionContext,
+  Agent,
+  AgentExecutor,
+  LLMAPIAgentExecutor,
+  CLIAgentExecutor,
+} from './types';
 
 describe('Executors', () => {
   describe('getExecutor', () => {
