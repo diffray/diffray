@@ -1,6 +1,6 @@
 {
   "name": "diffray",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "AI-powered code review CLI for git changes",
   "author": "Ilya Strelov <strelov1@gmail.com>",
   "license": "MIT",
@@ -15,7 +15,7 @@
   ],
   "scripts": {
     "dev": "bun run ./bin/diffray.ts",
-    "build": "bun build ./bin/diffray.ts --outfile dist/diffray.js --target node --minify && cp -r src/defaults dist/",
+    "build": "bun build ./bin/diffray.ts --outfile dist/diffray.js --target node --minify && node -e \"const fs=require('fs');const f='dist/diffray.js';fs.writeFileSync(f,fs.readFileSync(f,'utf8').replace('#!/usr/bin/env bun','#!/usr/bin/env node'))\" && cp -r src/defaults dist/",
     "link:local": "node -e \"const p=require('./package.json');p.bin.diffray='./bin/diffray.ts';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2)+'\\n')\" && bun link",
     "link:publish": "node -e \"const p=require('./package.json');p.bin.diffray='./dist/diffray.js';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2)+'\\n')\"",
     "link": "bun link",

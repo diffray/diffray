@@ -13,8 +13,9 @@ import type {
   Agent,
   AgentExecutor,
 } from '../types';
-import { log } from '../logger';
+import { log, MultiProgress } from '../logger';
 import { executorFactory, getExecutor } from '../executors';
+import { createLimiter } from '../concurrency';
 
 // Issue with assigned ID for validation tracking
 interface IndexedIssue extends Issue {
@@ -335,6 +336,7 @@ function getValidationExecutor(agent: Agent, context: PipelineContext): AgentExe
 /**
  * Execute validation for a single batch of issues
  * Returns array of valid issue IDs
+ * @param progress - Optional MultiProgress for progress tracking (skips withSpinner when provided)
  */
 async function executeValidationBatch(
   batch: IndexedIssue[],
@@ -342,8 +344,14 @@ async function executeValidationBatch(
   totalBatches: number,
   validationAgent: Agent,
   executor: AgentExecutor,
-  context: PipelineContext
+  context: PipelineContext,
+  progress?: MultiProgress
 ): Promise<BatchResult<number[]>> {
+  // Mark task as running on first batch (when using MultiProgress)
+  if (progress && batchIdx === 0) {
+    progress.startTask('validation');
+  }
+
   // Format issues as XML/Markdown with IDs
   const issuesFormatted = formatIssuesForValidation(batch);
 
@@ -401,26 +409,50 @@ async function executeValidationBatch(
     log.newline();
   }
 
+  // Core execution logic - shared between progress and spinner paths
+  const executeCore = async (): Promise<{ success: boolean; data: number[]; error?: string }> => {
+    const result = await executorFactory.executeAgent(execContext);
+    if (!result.success) {
+      return { success: false, data: [], error: result.error };
+    }
+    const validIds = parseValidatedIds(result.output, batch);
+    return { success: true, data: validIds };
+  };
+
+  // Use MultiProgress if available, otherwise fall back to withSpinner
+  if (progress) {
+    const startTime = Date.now();
+    try {
+      const result = await executeCore();
+      const duration = Date.now() - startTime;
+
+      if (result.success) {
+        progress.completeBatch('validation');
+      } else {
+        progress.failTask('validation');
+      }
+
+      return { ...result, duration };
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      progress.failTask('validation');
+
+      return { success: false, data: [], error: errorMessage, duration };
+    }
+  }
+
+  // Fallback to withSpinner for quiet/stream/verbose modes
   return withSpinner(
     {
       label: 'Validating',
       batchIndex: batchIdx,
       totalBatches,
       itemCount: batch.length,
+      itemName: 'issue',
     },
     context.quiet ?? false,
-    async () => {
-      const result = await executorFactory.executeAgent(execContext);
-
-      if (!result.success) {
-        return { success: false, data: [], error: result.error };
-      }
-
-      // Parse validated IDs from response
-      // Pass batch to support fallback matching when validator returns <json> format
-      const validIds = parseValidatedIds(result.output, batch);
-      return { success: true, data: validIds };
-    },
+    executeCore,
     (ids, duration) =>
       totalBatches > 1
         ? `Validated batch ${batchIdx + 1}/${totalBatches} (${ids.length} valid, ${duration}ms)`
@@ -513,11 +545,7 @@ export function createValidationStage(): Stage {
           : undefined;
 
       if (!context.quiet) {
-        if (needsBatching) {
-          log.sync(`Validating ${allIssues.length} issues in ${batches.length} batches...`);
-        } else {
-          log.sync(`Validating ${allIssues.length} issue(s)...`);
-        }
+        log.sync(`Validating ${allIssues.length} issue(s)...`);
         if (context.verbose) {
           log.plain(
             `   Executor: ${finalExecutor.name}${executorModel ? ` (model: ${executorModel})` : ''}`
@@ -525,21 +553,64 @@ export function createValidationStage(): Stage {
         }
       }
 
-      try {
-        // Validate all batches in parallel with concurrency limit
-        const batchResults = await executeBatches(
-          batches,
-          (batch, batchIdx, totalBatches) =>
-            executeValidationBatch(
-              batch,
-              batchIdx,
-              totalBatches,
-              validationAgent,
-              finalExecutor,
-              context
-            ),
-          { concurrency: context.concurrency, quiet: context.quiet }
+      // Create MultiProgress (only when not quiet/stream/verbose)
+      const useMultiProgress = !context.quiet && !context.stream && !context.verbose;
+      const progress = useMultiProgress ? new MultiProgress() : undefined;
+
+      // Add validation task to progress
+      if (progress) {
+        progress.addTask(
+          'validation',
+          'Validation',
+          batches.length,
+          allIssues.length,
+          1, // ruleCount = 1 for validation
+          `${allIssues.length} issues`
         );
+        progress.start();
+      }
+
+      try {
+        // Validate all batches
+        let batchResults: BatchResult<number[]>[];
+
+        if (progress) {
+          // Use MultiProgress version with concurrency limiter
+          const limit = createLimiter(context.concurrency);
+          batchResults = await Promise.all(
+            batches.map((batch, batchIdx) =>
+              limit(() =>
+                executeValidationBatch(
+                  batch,
+                  batchIdx,
+                  batches.length,
+                  validationAgent,
+                  finalExecutor,
+                  context,
+                  progress
+                )
+              )
+            )
+          );
+        } else {
+          // Fallback to withSpinner version (no progress param)
+          batchResults = await executeBatches(
+            batches,
+            (batch, batchIdx, totalBatches) =>
+              executeValidationBatch(
+                batch,
+                batchIdx,
+                totalBatches,
+                validationAgent,
+                finalExecutor,
+                context
+              ),
+            { concurrency: context.concurrency, quiet: context.quiet }
+          );
+        }
+
+        // Stop progress display
+        progress?.stop();
 
         // Check for failures
         if (!allSucceeded(batchResults)) {
@@ -576,6 +647,9 @@ export function createValidationStage(): Stage {
           duration,
         };
       } catch (error) {
+        // Stop progress display on error
+        progress?.stop();
+
         const errorMessage = error instanceof Error ? error.message : String(error);
         if (!context.quiet) {
           log.error(`Validation error: ${errorMessage}`);

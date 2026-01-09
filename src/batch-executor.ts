@@ -40,6 +40,8 @@ export interface BatchSpinnerConfig {
   totalBatches: number;
   /** Optional: number of items in this batch */
   itemCount?: number;
+  /** Optional: custom name for items (default: "item") */
+  itemName?: string;
 }
 
 // ============ Utility Functions ============
@@ -64,18 +66,20 @@ export function chunk<T>(array: T[], size: number): T[][] {
  * - Multiple batches: `${label} (batch ${idx+1}/${total})...`
  */
 export function formatBatchLabel(config: BatchSpinnerConfig): string {
-  const { label, batchIndex, totalBatches, itemCount } = config;
+  const { label, batchIndex, totalBatches, itemCount, itemName = 'item' } = config;
 
   if (totalBatches === 1) {
     if (itemCount !== undefined) {
-      return `${label} (${itemCount} item${itemCount !== 1 ? 's' : ''})...`;
+      const plural = itemCount !== 1 ? 's' : '';
+      return `${label} (${itemCount} ${itemName}${plural})...`;
     }
     return `${label}...`;
   }
 
   const batchPart = `batch ${batchIndex + 1}/${totalBatches}`;
   if (itemCount !== undefined) {
-    return `${label} (${batchPart}, ${itemCount} item${itemCount !== 1 ? 's' : ''})...`;
+    const plural = itemCount !== 1 ? 's' : '';
+    return `${label} (${batchPart}, ${itemCount} ${itemName}${plural})...`;
   }
   return `${label} (${batchPart})...`;
 }
