@@ -5,7 +5,21 @@ describe('Config', () => {
   test('should create default config', () => {
     const config = getDefaultConfig();
 
-    expect(config.excludePatterns).toEqual(['*.lock', '*.min.js', 'dist/*', 'node_modules/**']);
+    expect(config.excludePatterns).toEqual([
+      '*.min.js',
+      '*.min.css',
+      '*.map',
+      '*.d.ts',
+      'dist/**',
+      'build/**',
+      'out/**',
+      '.next/**',
+      'coverage/**',
+      'node_modules/**',
+      'vendor/**',
+      '*.generated.*',
+      '*.bundle.js',
+    ]);
     expect(config.output.colorize).toBe(true);
     expect(config.output.format).toBe('terminal');
     expect(config.executors).toEqual([]);

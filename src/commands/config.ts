@@ -56,65 +56,69 @@ export async function resetConfigCommand(): Promise<void> {
 export async function setConfigValue(key: string, value: string): Promise<void> {
   const config = await loadConfig();
 
-  // Parse the key path (e.g., "ai.provider" -> ["ai", "provider"])
+  // Parse the key path (e.g., "output.colorize" -> ["output", "colorize"])
   const keys = key.split('.');
 
-  if (keys.length !== 2) {
-    log.error('Invalid key format. Use format: section.key (e.g., ai.provider)');
-    process.exit(1);
-  }
-
-  const section = keys[0];
-  const field = keys[1];
-
-  if (!section || !field) {
-    log.error('Invalid key format. Use format: section.key (e.g., ai.provider)');
-    process.exit(1);
-  }
-
-  // Validate section
-  if (!['output'].includes(section)) {
-    log.error(`Invalid section: ${section}`);
-    log.plain('Valid sections: output');
-    log.plain(
-      'Note: agents, executors, rules, and stages are managed via their respective commands'
-    );
-    process.exit(1);
-  }
+  // Root-level keys that can be set directly
+  const rootKeys = ['concurrency'];
+  // Nested sections
+  const nestedSections = ['output'];
 
   // Parse value based on type
-  // Keep API keys and URLs as strings even if they look like numbers
-  const stringOnlyFields = ['apiKey', 'url', 'baseUrl'];
-  let parsedValue: string | number | boolean = value;
+  const parseValue = (val: string, field: string): string | number | boolean => {
+    const stringOnlyFields = ['apiKey', 'url', 'baseUrl'];
+    if (val === 'true') return true;
+    if (val === 'false') return false;
+    if (!stringOnlyFields.includes(field) && !isNaN(Number(val))) return Number(val);
+    return val;
+  };
 
-  if (value === 'true') {
-    parsedValue = true;
-  } else if (value === 'false') {
-    parsedValue = false;
-  } else if (!stringOnlyFields.includes(field) && !isNaN(Number(value))) {
-    parsedValue = Number(value);
-  }
+  let updated: Config;
 
-  // Update config
-  const sectionKey = section as keyof Config;
-  const currentSection = config[sectionKey];
+  if (keys.length === 1) {
+    // Root-level key (e.g., "concurrency")
+    const rootKey = keys[0]!;
 
-  if (typeof currentSection !== 'object' || currentSection === null) {
-    log.error(`Invalid section: ${section}`);
+    if (!rootKeys.includes(rootKey)) {
+      log.error(`Invalid root key: ${rootKey}`);
+      log.plain(`Valid root keys: ${rootKeys.join(', ')}`);
+      log.plain(`Valid sections: ${nestedSections.join(', ')} (use section.key format)`);
+      process.exit(1);
+    }
+
+    const parsedValue = parseValue(value, rootKey);
+    updated = { ...config, [rootKey]: parsedValue };
+  } else if (keys.length === 2) {
+    // Nested key (e.g., "output.colorize")
+    const [section, field] = keys as [string, string];
+
+    if (!nestedSections.includes(section)) {
+      log.error(`Invalid section: ${section}`);
+      log.plain(`Valid root keys: ${rootKeys.join(', ')}`);
+      log.plain(`Valid sections: ${nestedSections.join(', ')}`);
+      process.exit(1);
+    }
+
+    const currentSection = config[section as keyof Config];
+    if (typeof currentSection !== 'object' || currentSection === null) {
+      log.error(`Invalid section: ${section}`);
+      process.exit(1);
+    }
+
+    const parsedValue = parseValue(value, field);
+    updated = {
+      ...config,
+      [section]: { ...currentSection, [field]: parsedValue },
+    };
+  } else {
+    log.error('Invalid key format. Use: key or section.key');
+    log.plain(`Examples: concurrency, output.colorize`);
     process.exit(1);
   }
-
-  const updated = {
-    ...config,
-    [section]: {
-      ...currentSection,
-      [field]: parsedValue,
-    },
-  };
 
   try {
     await saveConfig(updated);
-    log.success(`Updated ${key} = ${parsedValue}`);
+    log.success(`Updated ${key} = ${value}`);
   } catch (error) {
     log.error(`Failed to update config: ${error}`);
     process.exit(1);

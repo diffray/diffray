@@ -36,7 +36,7 @@ import { fileURLToPath } from 'url';
 
 // ============ Configuration ============
 
-const VALIDATION_BATCH_SIZE = 15; // Issues per batch
+const VALIDATION_BATCH_SIZE = 10; // Issues per batch
 
 // Similarity scoring weights (total = 100)
 // These weights determine how much each attribute contributes to issue matching

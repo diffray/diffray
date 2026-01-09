@@ -369,7 +369,9 @@ export function createReviewStage(): Stage {
       const failureCount = failedAgents.length;
 
       if (!context.quiet) {
-        log.done(`Completed: ${successCount}/${agentsToExecute.length} succeeded`);
+        const duration = Date.now() - startTime;
+        const durationStr = duration >= 1000 ? `${(duration / 1000).toFixed(1)}s` : `${duration}ms`;
+        log.done(`Review complete: ${successCount}/${agentsToExecute.length} agents (${durationStr})`);
       }
 
       // Collect error messages from failed agents
