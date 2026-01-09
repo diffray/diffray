@@ -102,11 +102,14 @@ export const log = {
 
   // Logo banner
   logo: () => {
-    console.log();
-    console.log(`  ┌───────────────────────────────────────────────┐`);
-    console.log(`  │  [${colors.green}+${colors.reset}/${colors.red}-${colors.reset}] ${colors.bold}diffray${colors.reset} ${colors.dim}— Multi-agent AI code review${colors.reset}  │`);
-    console.log(`  └───────────────────────────────────────────────┘`);
-    console.log();
+    console.log(`
+ ██████╗  ██╗ ███████╗ ███████╗ ██████╗   █████╗  ██╗   ██╗
+ ██╔══██╗ ██║ ██╔════╝ ██╔════╝ ██╔══██╗ ██╔══██╗ ╚██╗ ██╔╝
+ ██║  ██║ ██║ █████╗   █████╗   ██████╔╝ ███████║  ╚████╔╝   ${colors.bold}Multi-agent code review${colors.reset}
+ ██║  ██║ ██║ ██╔══╝   ██╔══╝   ██╔══██╗ ██╔══██║   ╚██╔╝
+ ██████╔╝ ██║ ██║      ██║      ██║  ██║ ██║  ██║    ██║
+ ╚═════╝  ╚═╝ ╚═╝      ╚═╝      ╚═╝  ╚═╝ ╚═╝  ╚═╝    ╚═╝
+`);
   },
 
   // Separator

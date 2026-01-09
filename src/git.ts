@@ -348,6 +348,34 @@ export async function getLastCommitDiffs(): Promise<GitDiff[]> {
 }
 
 /**
+ * Get commit messages between two refs (for understanding change intent)
+ * @param baseRef - Base commit/branch to start from (exclusive)
+ * @param headRef - Head commit/branch to end at (inclusive, defaults to 'HEAD')
+ * @returns Array of commit messages (subject + body)
+ */
+export async function getCommitMessages(
+  baseRef: string,
+  headRef: string = 'HEAD'
+): Promise<string[]> {
+  try {
+    // Get commit messages with full body, separated by a delimiter
+    const output = await runGit([
+      'log',
+      '--format=%B%n---COMMIT_SEPARATOR---',
+      `${baseRef}..${headRef}`,
+    ]);
+
+    return output
+      .split('---COMMIT_SEPARATOR---')
+      .map((msg) => msg.trim())
+      .filter((msg) => msg.length > 0);
+  } catch (e) {
+    log.debug(`getCommitMessages failed: ${e}`);
+    return [];
+  }
+}
+
+/**
  * Get diffs between two commits/refs (base vs head) using native git
  * @param baseRef - Base commit/branch/tag to compare from (e.g., 'main', 'HEAD~3', commit SHA)
  * @param headRef - Head commit/branch/tag to compare to (defaults to 'HEAD')

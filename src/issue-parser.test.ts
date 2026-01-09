@@ -382,4 +382,37 @@ That's all the issues I found.`;
       expect(issues).toHaveLength(0);
     });
   });
+
+  describe('string line number parsing', () => {
+    test('should parse "lineStart": "42" string number format', () => {
+      const input = JSON.stringify([
+        {
+          file: 'src/test.ts',
+          lineStart: '42',
+          lineEnd: '45',
+          severity: 'medium',
+          shortDescription: 'Test issue',
+        },
+      ]);
+      const issues = parseIssues(input);
+      expect(issues).toHaveLength(1);
+      expect(issues[0]!.lineStart).toBe(42);
+      expect(issues[0]!.lineEnd).toBe(45);
+    });
+
+    test('should parse "line": "137" string number format', () => {
+      const input = JSON.stringify([
+        {
+          file: 'src/test.go',
+          line: '137',
+          severity: 'high',
+          issue: 'Race condition in cache access',
+        },
+      ]);
+      const issues = parseIssues(input);
+      expect(issues).toHaveLength(1);
+      expect(issues[0]!.lineStart).toBe(137);
+      expect(issues[0]!.lineEnd).toBe(137);
+    });
+  });
 });

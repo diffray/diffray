@@ -45,8 +45,10 @@ async function runReview(args: {
   base?: string;
   head?: string;
   skipValidation?: boolean;
+  agent?: string;
 }) {
-  const { verbose = false, json = false, stream = false, severity, base, head, skipValidation = false } = args;
+  const { verbose = false, json = false, stream = false, severity, base, head, skipValidation = false, agent } = args;
+  const agentFilter = agent ? agent.split(',').map((a: string) => a.trim()) : undefined;
   const severityFilter = severity ? severity.split(',').map((s: string) => s.trim()) : undefined;
 
   if (!json) {
@@ -178,7 +180,16 @@ async function runReview(args: {
     log.success(`Loaded ${enabledExecutors.length} executor(s)`);
   }
 
-  const agents = await loadAgents();
+  let agents = await loadAgents();
+
+  // Filter agents if --agent flag provided
+  if (agentFilter && agentFilter.length > 0) {
+    agents = agents.filter((a) => agentFilter.includes(a.name));
+    if (!json) {
+      log.info(`Filtering agents: ${agentFilter.join(', ')}`);
+    }
+  }
+
   const enabledAgents = agents.filter((a) => a.enabled);
   if (!json) {
     log.success(`Loaded ${enabledAgents.length} Agent(s)`);
@@ -308,6 +319,10 @@ const reviewCmd = defineCommand({
     'skip-validation': {
       type: 'boolean',
       description: 'Skip validation stage (show all issues without filtering)',
+    },
+    agent: {
+      type: 'string',
+      description: 'Run only specific agents (comma-separated: bug-hunter,security-scan)',
     },
   },
   run: async ({ args }) => {

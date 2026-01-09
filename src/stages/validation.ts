@@ -316,6 +316,18 @@ async function executeValidationBatch(
 
   // Build repository context
   const repoPath = context.metadata.repository;
+
+  // Format commit messages if available
+  const commitMessagesSection = context.metadata.commitMessages?.length
+    ? [
+        '',
+        '## Commit Messages (IMPORTANT: Check these to understand change intent!)',
+        'These messages explain WHY the changes were made. Use them to identify INTENTIONAL trade-offs.',
+        '',
+        ...context.metadata.commitMessages.map((msg, i) => `### Commit ${i + 1}:\n${msg}`),
+      ].join('\n')
+    : null;
+
   const repoContext = [
     `# Repository Context`,
     `Base path: ${repoPath}`,
@@ -323,6 +335,7 @@ async function executeValidationBatch(
     `When using tools to read files, prepend this base path to get absolute paths.`,
     context.metadata.baseRef ? `Base ref: ${context.metadata.baseRef}` : null,
     context.metadata.headRef ? `Head ref: ${context.metadata.headRef}` : null,
+    commitMessagesSection,
   ].filter(Boolean).join('\n');
 
   // Combine repository context with formatted issues

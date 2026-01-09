@@ -16,6 +16,7 @@
   "scripts": {
     "postinstall": "node scripts/postinstall.js",
     "dev": "bun run ./bin/diffray.ts",
+    "prebuild": "bun scripts/generate-embedded-defaults.ts",
     "build": "bun build ./bin/diffray.ts --compile --target=bun --minify --outfile dist/diffray",
     "build:all": "bash scripts/build-all.sh",
     "link:local": "node -e \"const p=require('./package.json');p.bin.diffray='./bin/diffray.ts';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2)+'\\n')\" && bun link",
