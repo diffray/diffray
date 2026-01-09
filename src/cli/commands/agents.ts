@@ -4,31 +4,25 @@ import { listAgents, showAgent } from '../../commands/agents.js';
 export const agentsCmd = defineCommand({
   meta: {
     name: 'agents',
-    description: 'Manage review agents',
+    description: `List agents or show agent details
+
+Examples:
+  diffray agents              # List all agents
+  diffray agents validation   # Show validation agent details
+  diffray agents general      # Show general agent details`,
   },
-  subCommands: {
-    list: {
-      meta: {
-        description: 'List all agents',
-      },
-      run: () => {
-        listAgents();
-      },
+  args: {
+    name: {
+      type: 'positional',
+      description: 'Agent name (optional, shows details if provided)',
+      required: false,
     },
-    show: {
-      meta: {
-        description: 'Show agent details',
-      },
-      args: {
-        id: {
-          type: 'positional',
-          description: 'Agent ID',
-          required: true,
-        },
-      },
-      run: ({ args }) => {
-        showAgent(args.id!);
-      },
-    },
+  },
+  run: async ({ args }) => {
+    if (args.name) {
+      await showAgent(args.name);
+    } else {
+      await listAgents();
+    }
   },
 });

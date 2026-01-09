@@ -20,12 +20,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Git Diffs → Pipeline → Stages → Issues
 
 Stages (sequential):
-  1. load-rules     - Load rules from MD files, resolve agents
-  2. match-rules    - Match files to rules using glob patterns
-  3. execute-agents - Run agents in parallel via executors
-  4. aggregate      - Collect results from all agents
-  5. deduplication  - Remove duplicate issues
-  6. validation     - LLM validates issues, filters false positives
+  1. load-rules        - Load rules from MD files, resolve agents
+  2. match-rules       - Match files to rules using glob patterns
+  3. review            - Run agents in parallel via executors
+  4. aggregate-results - Collect results from all agents
+  5. deduplication     - Remove duplicate issues
+  6. validation        - LLM validates issues, filters false positives
 ```
 
 ### Core Components
@@ -45,10 +45,16 @@ Stages (sequential):
 - Defined in Markdown with YAML frontmatter (ID, Order, Enabled, Executor)
 - Loaded directly from MD files on each run via `src/agents/md-loader.ts`
 - Sources (priority order): project `.diffray/agents/`, user `~/.diffray/agents/`, defaults
+- Built-in agents:
+  - `general` - Fallback reviewer when no specific agent fits; focuses on simplicity and clarity
+  - `bug-hunter` - Detects bugs, logic errors and runtime issues
+  - `security-scan` - Scans for security vulnerabilities
+  - `performance-check` - Checks for performance issues
+  - `validation` - Validates issues found by other agents (internal)
 
-**Executors** (`src/executors.ts`):
-- Types: `llm-api` (HTTP API), `cli` (subprocess)
-- Factory pattern: `executorFactory.executeAgent(context)`
+**Executors** (`src/executors/`):
+- Types: `llm-api` (HTTP API), `cli` (subprocess), `mcp` (MCP protocol)
+- Modular structure: `api.ts`, `cli.ts`, `claude-cli.ts`, `process.ts`, `types.ts`, `utils.ts`
 - Built-in executors:
   - `cerebras-api` - Cerebras AI API (requires `CEREBRAS_API_KEY`)
   - `claude-cli` - Claude Code CLI with streaming support
@@ -100,6 +106,8 @@ interface Issue {
 - `src/config.ts` - Config schema (Zod), load/save to `~/.diffray/config.json`
 - `src/issue-parser.ts` - Parse JSON issues from agent output
 - `src/issue-formatter.ts` - Format issues for terminal/JSON output
+- `src/concurrency.ts` - p-limit style concurrency limiter
+- `src/batch-executor.ts` - Batch execution with spinner feedback
 - `src/defaults/prompts/output-format.md` - JSON format agents must return
 
 ## CLI Subcommands
@@ -107,6 +115,7 @@ interface Issue {
   - `--base <ref>` - Base commit/branch (e.g., `main`, `HEAD~3`)
   - `--head <ref>` - Head commit/branch (default: `HEAD`)
     - When `--base` specified with no uncommitted changes, temporarily checks out `--head` ref for CLI tools, then restores original branch
+  - `--agent <list>` - Run only specific agents (comma-separated: `bug-hunter,general`)
   - `--severity <list>` - Filter by severity (comma-separated: critical,high,medium,low)
   - `--json` - Output results in JSON format
   - `--stream` - Show streaming (💭 thinking, 🔧 tools, ⚠ preliminary issues)
@@ -116,6 +125,7 @@ interface Issue {
 - `diffray agents list/show` - View agents
 - `diffray rules list/show/test` - View and test rules
 - `diffray executors list/enable/disable` - Manage executors
+- `diffray cache clear` - Clear config and instructions cache
 
 ## Technology
 - Runtime: Bun
@@ -127,6 +137,7 @@ interface Issue {
 ## Development Notes
 - ES Modules with bundler moduleResolution (no `.js` extensions needed)
 - Markdown frontmatter parsed with custom regex (see `md-loader.ts`)
-- Config stored at `~/.diffray/config.json` (executors, stages, validation settings only)
+- Config stored at `~/.diffray/config.json` (executors, stages, concurrency settings)
+- Global instructions can be added at `~/.diffray/instructions.md`
 - Agents and rules are always loaded fresh from MD files (no caching)
 - Agents reference prompts via `../prompts/output-format.md` in their systemPrompt

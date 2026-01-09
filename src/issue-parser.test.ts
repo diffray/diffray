@@ -283,7 +283,13 @@ That's all the issues I found.`;
     test('should filter out issues without file', () => {
       const input = JSON.stringify([
         { lineStart: 1, severity: 'high', category: 'bug', shortDescription: 'No file' },
-        { file: 'src/app.ts', lineStart: 1, severity: 'high', category: 'bug', shortDescription: 'Has file' },
+        {
+          file: 'src/app.ts',
+          lineStart: 1,
+          severity: 'high',
+          category: 'bug',
+          shortDescription: 'Has file',
+        },
       ]);
 
       const issues = parseIssues(input);
@@ -295,7 +301,13 @@ That's all the issues I found.`;
     test('should filter out issues without shortDescription', () => {
       const input = JSON.stringify([
         { file: 'src/app.ts', lineStart: 1, severity: 'high', category: 'bug' },
-        { file: 'src/app.ts', lineStart: 1, severity: 'high', category: 'bug', shortDescription: 'Has desc' },
+        {
+          file: 'src/app.ts',
+          lineStart: 1,
+          severity: 'high',
+          category: 'bug',
+          shortDescription: 'Has desc',
+        },
       ]);
 
       const issues = parseIssues(input);
@@ -306,9 +318,27 @@ That's all the issues I found.`;
 
     test('should filter out issues with lineStart <= 0', () => {
       const input = JSON.stringify([
-        { file: 'src/app.ts', lineStart: 0, severity: 'high', category: 'bug', shortDescription: 'Line 0' },
-        { file: 'src/app.ts', lineStart: -1, severity: 'high', category: 'bug', shortDescription: 'Negative' },
-        { file: 'src/app.ts', lineStart: 1, severity: 'high', category: 'bug', shortDescription: 'Valid' },
+        {
+          file: 'src/app.ts',
+          lineStart: 0,
+          severity: 'high',
+          category: 'bug',
+          shortDescription: 'Line 0',
+        },
+        {
+          file: 'src/app.ts',
+          lineStart: -1,
+          severity: 'high',
+          category: 'bug',
+          shortDescription: 'Negative',
+        },
+        {
+          file: 'src/app.ts',
+          lineStart: 1,
+          severity: 'high',
+          category: 'bug',
+          shortDescription: 'Valid',
+        },
       ]);
 
       const issues = parseIssues(input);
@@ -341,7 +371,13 @@ That's all the issues I found.`;
 
     test('should use default agent "unknown" when not provided', () => {
       const input = JSON.stringify([
-        { file: 'src/app.ts', lineStart: 1, severity: 'high', category: 'bug', shortDescription: 'Test' },
+        {
+          file: 'src/app.ts',
+          lineStart: 1,
+          severity: 'high',
+          category: 'bug',
+          shortDescription: 'Test',
+        },
       ]);
 
       const issues = parseIssues(input);
@@ -351,7 +387,13 @@ That's all the issues I found.`;
 
     test('should use provided agent parameter', () => {
       const input = JSON.stringify([
-        { file: 'src/app.ts', lineStart: 1, severity: 'high', category: 'bug', shortDescription: 'Test' },
+        {
+          file: 'src/app.ts',
+          lineStart: 1,
+          severity: 'high',
+          category: 'bug',
+          shortDescription: 'Test',
+        },
       ]);
 
       const issues = parseIssues(input, 'security-agent');

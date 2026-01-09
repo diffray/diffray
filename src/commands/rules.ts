@@ -3,15 +3,7 @@
  */
 
 import { loadRuleRefs, matchPattern } from '../rules.js';
-import { log } from '../logger';
-
-/**
- * Truncate string with ellipsis
- */
-function truncate(str: string, maxLen: number): string {
-  if (str.length <= maxLen) return str;
-  return str.substring(0, maxLen - 1) + '…';
-}
+import { log, formatPath } from '../logger';
 
 /**
  * Format source badge
@@ -37,93 +29,24 @@ export async function listRules(): Promise<void> {
 
   if (rules.length === 0) {
     log.warn('No rules configured');
-    log.newline();
-    log.plain('Add rule definitions in markdown files and sync with:');
-    log.plain('  diffray rules sync');
-    log.newline();
-    log.plain('Example markdown rule:');
-    log.plain('  # Rule: ts-review');
-    log.plain('  ## Patterns: **/*.ts,**/*.tsx');
-    log.plain('  ## Agent: bug-hunter');
-    log.plain('  ## Description: TypeScript code review');
     return;
   }
 
   log.robot('Rules');
   log.newline();
 
-  // Calculate column widths
-  const cols = {
-    source: 1,
-    name: Math.max(4, ...rules.map((r) => r.name.length)),
-    agent: Math.max(5, ...rules.map((r) => r.agent.length)),
-    description: 30,
-    pattern: Math.max(8, ...rules.flatMap((r) => r.patterns.map((p) => p.length))),
-  };
-
-  // Header
-  const header = [
-    ''.padEnd(cols.source),
-    'Rule'.padEnd(cols.name),
-    'Agent'.padEnd(cols.agent),
-    'Description'.padEnd(cols.description),
-    'Patterns'.padEnd(cols.pattern),
-  ].join('  ');
-
-  const separator = [
-    '-'.repeat(cols.source),
-    '-'.repeat(cols.name),
-    '-'.repeat(cols.agent),
-    '-'.repeat(cols.description),
-    '-'.repeat(cols.pattern),
-  ].join('  ');
-
-  log.plain(header);
-  log.plain(separator);
-
-  // Rows
-  for (let idx = 0; idx < rules.length; idx++) {
-    const rule = rules[idx]!;
-    const description = truncate(rule.description, cols.description);
+  for (const rule of rules) {
     const badge = sourceBadge(rule.source);
+    const path = formatPath(rule.path);
 
-    // First row with rule info and first pattern
-    const firstPattern = rule.patterns[0] ?? '';
-    const row = [
-      badge.padEnd(cols.source),
-      rule.name.padEnd(cols.name),
-      rule.agent.padEnd(cols.agent),
-      description.padEnd(cols.description),
-      firstPattern.padEnd(cols.pattern),
-    ].join('  ');
-
-    log.plain(row);
-
-    // Additional patterns on subsequent lines
-    for (let i = 1; i < rule.patterns.length; i++) {
-      const pattern = rule.patterns[i];
-      if (!pattern) continue;
-      const patternRow = [
-        ''.padEnd(cols.source),
-        ''.padEnd(cols.name),
-        ''.padEnd(cols.agent),
-        ''.padEnd(cols.description),
-        pattern.padEnd(cols.pattern),
-      ].join('  ');
-
-      log.plain(patternRow);
-    }
-
-    // Separator between rules (except after last)
-    if (idx < rules.length - 1) {
-      log.plain(separator);
-    }
+    log.plain(`${badge} ${rule.name}`);
+    log.plain(`  agent: ${rule.agent}`);
+    log.plain(`  patterns: ${rule.patterns.join(', ')}`);
+    log.plain(`  path: ${path}`);
+    log.newline();
   }
 
-  log.newline();
   log.plain('◆ defaults  ◇ user  ● project');
-  log.newline();
-  log.plain(`Use 'diffray rules show <name>' for full details`);
 }
 
 /**
@@ -204,4 +127,3 @@ export async function testRule(ruleName: string, files: string[]): Promise<void>
     }
   }
 }
-

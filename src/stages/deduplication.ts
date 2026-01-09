@@ -86,9 +86,7 @@ export function createDeduplicationStage(): Stage {
       // Step 3: Semantic deduplication (similar descriptions in nearby lines)
       const semanticDeduped: Issue[] = [];
       for (const issue of locationDeduped) {
-        const isDuplicate = semanticDeduped.some((existing) =>
-          areSimilarIssues(existing, issue)
-        );
+        const isDuplicate = semanticDeduped.some((existing) => areSimilarIssues(existing, issue));
         if (!isDuplicate) {
           semanticDeduped.push(issue);
         }

@@ -47,7 +47,16 @@ async function runReview(args: {
   skipValidation?: boolean;
   agent?: string;
 }) {
-  const { verbose = false, json = false, stream = false, severity, base, head, skipValidation = false, agent } = args;
+  const {
+    verbose = false,
+    json = false,
+    stream = false,
+    severity,
+    base,
+    head,
+    skipValidation = false,
+    agent,
+  } = args;
   const agentFilter = agent ? agent.split(',').map((a: string) => a.trim()) : undefined;
   const severityFilter = severity ? severity.split(',').map((s: string) => s.trim()) : undefined;
 
@@ -289,7 +298,15 @@ async function runReview(args: {
 const reviewCmd = defineCommand({
   meta: {
     name: 'review',
-    description: 'Run code review on current changes',
+    description: `Run code review on current changes
+
+Examples:
+  diffray review                        Review uncommitted changes
+  diffray review --base main            Compare current branch to main
+  diffray review --agent general        Run only general agent
+  diffray review --agent bug-hunter,security-scan
+  diffray review --severity critical,high
+  diffray review --stream               Show thinking and tool usage`,
   },
   args: {
     stream: {

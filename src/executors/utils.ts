@@ -5,9 +5,9 @@
 import type { ExecutionContext, ExecutionResult } from '../types';
 import { getCached, CACHE_KEYS } from '../cache';
 import { log } from '../logger';
+import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { embeddedPrompts } from '../generated/embedded-defaults.js';
 
 // ============ Retry Helper ============
 
@@ -51,7 +51,9 @@ export async function fetchWithRetry(
       if (attempt < retries - 1) {
         const delay = RETRY_BASE_DELAY * Math.pow(2, attempt);
         if (process.env.DEBUG) {
-          log.plain(`⏳ Retry ${attempt + 1}/${retries - 1} after ${delay}ms (${lastError.message})`);
+          log.plain(
+            `⏳ Retry ${attempt + 1}/${retries - 1} after ${delay}ms (${lastError.message})`
+          );
         }
         await sleep(delay);
       }
@@ -63,27 +65,38 @@ export async function fetchWithRetry(
 
 // ============ Prompt Helpers ============
 
+const DEFAULT_OUTPUT_FORMAT = `# Output Format
+
+Return your findings as a **JSON array** wrapped in \`<json>...</json>\` XML tags:
+
+<json>
+[
+  {
+    "file": "path/to/file.ts",
+    "lineStart": 10,
+    "lineEnd": 15,
+    "severity": "critical|high|medium|low",
+    "category": "security|performance|bug|quality|style|docs",
+    "shortDescription": "Brief one-line description",
+    "fullDescription": "Detailed description of the issue",
+    "suggestion": "How to fix this issue (optional)"
+  }
+]
+</json>
+
+Return empty array if no issues found: \`<json>[]</json>\`
+`;
+
 export async function loadOutputFormat(): Promise<string> {
   return getCached(CACHE_KEYS.OUTPUT_FORMAT, async () => {
-    // Try filesystem first (dev mode)
     try {
       const __filename = fileURLToPath(import.meta.url);
       const __dirname = dirname(__filename);
       const formatPath = join(__dirname, '..', 'defaults', 'prompts', 'output-format.md');
-      const content = await Bun.file(formatPath).text();
-      if (content) return content;
+      return await readFile(formatPath, 'utf-8');
     } catch {
-      // Filesystem failed, try embedded
+      return DEFAULT_OUTPUT_FORMAT;
     }
-
-    // Fall back to embedded prompts (compiled binary)
-    const embedded = embeddedPrompts['output-format.md'];
-    if (embedded) {
-      return embedded;
-    }
-
-    // Last resort fallback
-    return '\n\n# Output Format\n\nReturn results as JSON array: []';
   });
 }
 

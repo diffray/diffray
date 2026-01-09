@@ -9,26 +9,23 @@
     "diffray": "./bin/diffray.ts"
   },
   "files": [
-    "bin/diffray-wrapper.js",
-    "scripts/postinstall.js",
+    "dist",
     "src/defaults"
   ],
   "scripts": {
-    "postinstall": "node scripts/postinstall.js",
     "dev": "bun run ./bin/diffray.ts",
-    "prebuild": "bun scripts/generate-embedded-defaults.ts",
-    "build": "bun build ./bin/diffray.ts --compile --target=bun --minify --outfile dist/diffray",
-    "build:all": "bash scripts/build-all.sh",
+    "build": "bun build ./bin/diffray.ts --outfile dist/diffray.js --target node --minify && cp -r src/defaults dist/",
     "link:local": "node -e \"const p=require('./package.json');p.bin.diffray='./bin/diffray.ts';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2)+'\\n')\" && bun link",
-    "link:publish": "node -e \"const p=require('./package.json');p.bin.diffray='./bin/diffray-wrapper.js';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2)+'\\n')\"",
+    "link:publish": "node -e \"const p=require('./package.json');p.bin.diffray='./dist/diffray.js';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2)+'\\n')\"",
     "link": "bun link",
     "unlink": "bun unlink",
+    "test": "bun test",
     "ts-check": "tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepublishOnly": "npm run link:publish && echo 'Run build:all and create GitHub release first!'"
+    "prepublishOnly": "npm run build && npm run link:publish"
   },
   "repository": {
     "type": "git",
@@ -78,6 +75,7 @@
     "citty": "^0.1.6",
     "diff": "^8.0.2",
     "glob": "^13.0.0",
+    "yaml": "^2.8.2",
     "zod": "^3.22.4"
   }
 }

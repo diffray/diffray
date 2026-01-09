@@ -116,11 +116,7 @@ describe('Validation Stage', () => {
     test('should succeed with results but all empty issues', async () => {
       const stage = createValidationStage();
       const context = createContext({
-        results: [
-          createAgentResult([]),
-          createAgentResult([]),
-          createAgentResult([]),
-        ],
+        results: [createAgentResult([]), createAgentResult([]), createAgentResult([])],
       });
 
       const result = await stage.execute(context);

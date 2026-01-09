@@ -59,8 +59,14 @@ export interface Agent {
   // Executor-specific settings (e.g., temperature, model, timeout)
   executorSettings?: Record<string, unknown>;
 
+  // Which stage this agent belongs to (default: 'review')
+  stage?: 'review' | 'validation';
+
   // Where this agent was loaded from
   source?: ConfigSource;
+
+  // Path to source file
+  path?: string;
 }
 
 /**

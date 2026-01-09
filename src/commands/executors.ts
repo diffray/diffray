@@ -20,14 +20,6 @@ function getTimeout(e: AgentExecutor): number | undefined {
   return e.type === 'cli' ? e.timeout : undefined;
 }
 
-function getTemperature(e: AgentExecutor): number | undefined {
-  return e.type === 'llm-api' ? e.temperature : undefined;
-}
-
-function getMaxTokens(e: AgentExecutor): number | undefined {
-  return e.type === 'llm-api' ? e.maxTokens : undefined;
-}
-
 /**
  * Get available settings from executor's settingsSchema
  */

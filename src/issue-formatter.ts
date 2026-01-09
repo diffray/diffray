@@ -180,7 +180,14 @@ export function groupIssuesByFile(issues: Issue[]): Map<string, Issue[]> {
 }
 
 /**
- * Format issues grouped by file
+ * Get minimum severity priority for a group of issues (lower = more severe)
+ */
+function getMinSeverityPriority(issues: Issue[]): number {
+  return Math.min(...issues.map((i) => getSeverityPriority(i.severity)));
+}
+
+/**
+ * Format issues grouped by file, sorted by severity
  */
 export function formatIssuesByFile(issues: Issue[]): string {
   if (issues.length === 0) {
@@ -196,7 +203,12 @@ export function formatIssuesByFile(issues: Issue[]): string {
   );
   output.push('');
 
-  for (const [file, fileIssues] of grouped) {
+  // Sort files by their most severe issue
+  const sortedFiles = Array.from(grouped.entries()).sort(
+    ([, issuesA], [, issuesB]) => getMinSeverityPriority(issuesA) - getMinSeverityPriority(issuesB)
+  );
+
+  for (const [file, fileIssues] of sortedFiles) {
     output.push(
       `${colors.bold}${colors.cyan}${file}${colors.reset} ${colors.dim}(${fileIssues.length} issue(s))${colors.reset}`
     );

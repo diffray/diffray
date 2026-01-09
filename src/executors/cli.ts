@@ -3,6 +3,7 @@
  */
 
 import { z } from 'zod';
+import { spawn } from 'node:child_process';
 import type { ExecutionContext, ExecutionResult } from '../types';
 import type { Executor, CLIConfig } from './types';
 import { log } from '../logger';
@@ -35,7 +36,10 @@ function getEffectiveTimeout(ctx: ExecutionContext, configTimeout: number | unde
 /**
  * Get effective model from context executor or config
  */
-function getEffectiveModel(ctx: ExecutionContext, configModel: string | undefined): string | undefined {
+function getEffectiveModel(
+  ctx: ExecutionContext,
+  configModel: string | undefined
+): string | undefined {
   // Prefer model from ctx.executor (applied via applySettings) over config default
   if (ctx.executor.type === 'cli' && ctx.executor.model !== undefined) {
     return ctx.executor.model;
@@ -65,9 +69,7 @@ async function executeClaudeCli(
   }
 
   // Use streaming JSON format
-  const streamArgs = finalArgs.map((arg) =>
-    arg === '--output-format' ? '--output-format' : arg
-  );
+  const streamArgs = finalArgs.map((arg) => (arg === '--output-format' ? '--output-format' : arg));
   const jsonIndex = streamArgs.indexOf('json');
   if (jsonIndex !== -1) {
     streamArgs[jsonIndex] = 'stream-json';
@@ -116,71 +118,103 @@ async function executeGenericCli(
 
   let cmdArgs: string[];
   if (config.systemPromptArg) {
-    cmdArgs = [config.command, ...finalArgs, config.systemPromptArg, systemPrompt, userPrompt];
+    cmdArgs = [...finalArgs, config.systemPromptArg, systemPrompt, userPrompt];
   } else {
     const fullPrompt = buildPrompt(systemPrompt, ctx.input, format);
-    cmdArgs = config.useStdin
-      ? [config.command, ...finalArgs]
-      : [config.command, ...finalArgs, fullPrompt];
+    cmdArgs = config.useStdin ? [...finalArgs] : [...finalArgs, fullPrompt];
   }
 
   if (ctx.verbose) {
-    log.plain(`🔧 CLI: ${cmdArgs.slice(0, -1).join(' ')} <prompt ${userPrompt.length} chars>`);
+    log.plain(
+      `🔧 CLI: ${config.command} ${cmdArgs.slice(0, -1).join(' ')} <prompt ${userPrompt.length} chars>`
+    );
   }
 
   ensureSigintHandler();
 
-  const proc = Bun.spawn(cmdArgs, {
-    stdin: config.useStdin ? 'pipe' : 'ignore',
-    stdout: 'pipe',
-    stderr: 'pipe',
-    env: { ...process.env, ...config.env },
-    cwd: ctx.cwd,
-  });
-  trackProcess(proc);
+  return new Promise((resolve) => {
+    const proc = spawn(config.command, cmdArgs, {
+      stdio: [config.useStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
+      env: { ...process.env, ...config.env },
+      cwd: ctx.cwd,
+    });
+    trackProcess(proc);
 
-  if (config.useStdin && proc.stdin) {
-    const promptToSend = config.systemPromptArg
-      ? userPrompt
-      : buildPrompt(ctx.systemPrompt, ctx.input, format);
-    proc.stdin.write(promptToSend);
-    proc.stdin.end();
-  }
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
 
-  const timeout = effectiveTimeout * 1000;
-  const timer = setTimeout(() => proc.kill(), timeout);
+    proc.stdout?.on('data', (data) => stdoutChunks.push(data));
+    proc.stderr?.on('data', (data) => stderrChunks.push(data));
 
-  const [stdout, stderr] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ]);
-  await proc.exited;
-  clearTimeout(timer);
-
-  if (ctx.verbose) {
-    log.plain(`📥 CLI raw response (${stdout.length} chars):`);
-    log.plain(`   ${stdout.slice(0, 500)}${stdout.length > 500 ? '...' : ''}`);
-    if (stderr) {
-      log.plain(`   stderr: ${stderr.slice(0, 200)}`);
+    if (config.useStdin && proc.stdin) {
+      const promptToSend = config.systemPromptArg
+        ? userPrompt
+        : buildPrompt(ctx.systemPrompt, ctx.input, format);
+      proc.stdin.write(promptToSend);
+      proc.stdin.end();
     }
-  }
 
-  if (proc.exitCode === null) {
-    return createResult(
-      ctx,
-      false,
-      '',
-      `Process killed (timeout after ${effectiveTimeout}s or signal)${stderr ? `: ${stderr}` : ''}`,
-      Date.now() - start,
-      userPrompt
-    );
-  }
+    const timeout = effectiveTimeout * 1000;
+    const timer = setTimeout(() => proc.kill(), timeout);
 
-  if (proc.exitCode !== 0) {
-    return createResult(ctx, false, '', `Exit code ${proc.exitCode}: ${stderr}`, Date.now() - start, userPrompt);
-  }
+    proc.on('close', (exitCode) => {
+      clearTimeout(timer);
+      const stdout = Buffer.concat(stdoutChunks).toString('utf-8');
+      const stderr = Buffer.concat(stderrChunks).toString('utf-8');
 
-  return createResult(ctx, true, stdout, undefined, Date.now() - start, userPrompt);
+      if (ctx.verbose) {
+        log.plain(`📥 CLI raw response (${stdout.length} chars):`);
+        log.plain(`   ${stdout.slice(0, 500)}${stdout.length > 500 ? '...' : ''}`);
+        if (stderr) {
+          log.plain(`   stderr: ${stderr.slice(0, 200)}`);
+        }
+      }
+
+      if (exitCode === null) {
+        resolve(
+          createResult(
+            ctx,
+            false,
+            '',
+            `Process killed (timeout after ${effectiveTimeout}s or signal)${stderr ? `: ${stderr}` : ''}`,
+            Date.now() - start,
+            userPrompt
+          )
+        );
+        return;
+      }
+
+      if (exitCode !== 0) {
+        resolve(
+          createResult(
+            ctx,
+            false,
+            '',
+            `Exit code ${exitCode}: ${stderr}`,
+            Date.now() - start,
+            userPrompt
+          )
+        );
+        return;
+      }
+
+      resolve(createResult(ctx, true, stdout, undefined, Date.now() - start, userPrompt));
+    });
+
+    proc.on('error', (err) => {
+      clearTimeout(timer);
+      resolve(
+        createResult(
+          ctx,
+          false,
+          '',
+          `Process error: ${err.message}`,
+          Date.now() - start,
+          userPrompt
+        )
+      );
+    });
+  });
 }
 
 export function createCLIExecutor(config: CLIConfig): Executor {
@@ -200,7 +234,13 @@ export function createCLIExecutor(config: CLIConfig): Executor {
 
         return await executeGenericCli(config, ctx, format);
       } catch (e) {
-        return createResult(ctx, false, '', e instanceof Error ? e.message : String(e), Date.now() - start);
+        return createResult(
+          ctx,
+          false,
+          '',
+          e instanceof Error ? e.message : String(e),
+          Date.now() - start
+        );
       }
     },
     getInfo: () => ({

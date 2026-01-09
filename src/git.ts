@@ -1,4 +1,6 @@
 import * as Diff from 'diff';
+import { spawn } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
 import type { GitDiff } from './types.js';
 import { getCached, invalidateCache, CACHE_KEYS } from './cache';
 import { log } from './logger';
@@ -9,24 +11,34 @@ const GIT_TIMEOUT_MS = 30000; // 30 seconds
  * Run native git command and return stdout (with timeout)
  */
 async function runGit(args: string[], cwd: string = process.cwd()): Promise<string> {
-  const proc = Bun.spawn(['git', ...args], { cwd, stdout: 'pipe', stderr: 'pipe' });
+  return new Promise((resolve, reject) => {
+    const proc = spawn('git', args, { cwd });
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
 
-  // Race between process completion and timeout
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => {
+    proc.stdout.on('data', (data) => stdout.push(data));
+    proc.stderr.on('data', (data) => stderr.push(data));
+
+    const timeout = setTimeout(() => {
       proc.kill();
       reject(new Error(`git ${args[0]} timeout after ${GIT_TIMEOUT_MS / 1000}s`));
     }, GIT_TIMEOUT_MS);
+
+    proc.on('close', (code) => {
+      clearTimeout(timeout);
+      if (code === 0) {
+        resolve(Buffer.concat(stdout).toString('utf-8'));
+      } else {
+        const stderrStr = Buffer.concat(stderr).toString('utf-8');
+        reject(new Error(`git ${args[0]} failed: ${stderrStr || `exit code ${code}`}`));
+      }
+    });
+
+    proc.on('error', (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
   });
-
-  const exitCode = await Promise.race([proc.exited, timeoutPromise]);
-
-  if (exitCode === 0) {
-    return await new Response(proc.stdout).text();
-  } else {
-    const stderr = await new Response(proc.stderr).text();
-    throw new Error(`git ${args[0]} failed: ${stderr || `exit code ${exitCode}`}`);
-  }
 }
 
 /**
@@ -115,8 +127,8 @@ export async function hasUncommittedChanges(): Promise<boolean> {
  */
 interface StatusEntry {
   file: string;
-  index: string;  // X - index status
-  worktree: string;  // Y - worktree status
+  index: string; // X - index status
+  worktree: string; // Y - worktree status
 }
 
 /**
@@ -192,7 +204,7 @@ export async function getFileDiff(file: string): Promise<string> {
     }
 
     try {
-      newContent = await Bun.file(file).text();
+      newContent = await readFile(file, 'utf-8');
     } catch {
       // File is deleted, no working version
       newContent = '';
