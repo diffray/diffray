@@ -7,6 +7,7 @@ import { getCached, CACHE_KEYS } from '../cache';
 import { log } from '../logger';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { embeddedPrompts } from '../generated/embedded-defaults.js';
 
 // ============ Retry Helper ============
 
@@ -64,14 +65,25 @@ export async function fetchWithRetry(
 
 export async function loadOutputFormat(): Promise<string> {
   return getCached(CACHE_KEYS.OUTPUT_FORMAT, async () => {
+    // Try filesystem first (dev mode)
     try {
       const __filename = fileURLToPath(import.meta.url);
       const __dirname = dirname(__filename);
       const formatPath = join(__dirname, '..', 'defaults', 'prompts', 'output-format.md');
-      return await Bun.file(formatPath).text();
+      const content = await Bun.file(formatPath).text();
+      if (content) return content;
     } catch {
-      return '\n\n# Output Format\n\nReturn results as JSON array: []';
+      // Filesystem failed, try embedded
     }
+
+    // Fall back to embedded prompts (compiled binary)
+    const embedded = embeddedPrompts['output-format.md'];
+    if (embedded) {
+      return embedded;
+    }
+
+    // Last resort fallback
+    return '\n\n# Output Format\n\nReturn results as JSON array: []';
   });
 }
 

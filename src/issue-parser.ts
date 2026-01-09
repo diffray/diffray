@@ -13,11 +13,11 @@ interface RawIssueItem {
   file?: string;
   path?: string;
 
-  // Line numbers
-  lineStart?: number;
-  lineEnd?: number;
-  line?: number;
-  lineNumber?: number;
+  // Line numbers (can be number or string like "137-139")
+  lineStart?: number | string;
+  lineEnd?: number | string;
+  line?: number | string;
+  lineNumber?: number | string;
 
   // Severity
   severity?: string;
@@ -53,15 +53,59 @@ interface RawIssueItem {
 }
 
 /**
+ * Check if a value is explicitly provided (not undefined/null)
+ */
+function isProvided(value: unknown): boolean {
+  return value !== undefined && value !== null;
+}
+
+/**
+ * Parse line number from string like "42" or number
+ * Returns positive number, 0 for invalid input that was provided, or null if not provided
+ */
+function parseLineNumber(value: string | number | undefined): number | null {
+  if (value === undefined || value === null) return null;
+
+  // Already a number
+  if (typeof value === 'number') {
+    return value > 0 ? value : 0; // Return 0 for invalid to distinguish from "not provided"
+  }
+
+  // String number like "42"
+  const num = parseInt(String(value).trim(), 10);
+  if (isNaN(num)) return 0; // Invalid string input
+  return num > 0 ? num : 0; // Return 0 for non-positive to distinguish from "not provided"
+}
+
+/**
+ * Get line start from item, trying multiple field names
+ * Returns valid line number, 0 if explicitly invalid, or 1 if no field provided
+ */
+function getLineStart(item: RawIssueItem): number {
+  // Try each field in priority order
+  if (isProvided(item.lineStart)) {
+    return parseLineNumber(item.lineStart) ?? 0;
+  }
+  if (isProvided(item.line)) {
+    return parseLineNumber(item.line) ?? 0;
+  }
+  if (isProvided(item.lineNumber)) {
+    return parseLineNumber(item.lineNumber) ?? 0;
+  }
+  // No line field provided - use default of 1
+  return 1;
+}
+
+/**
  * Parse issue item from JSON object
  * Handles multiple field name variations
  */
 function parseIssueItem(item: RawIssueItem, agent?: string): Issue {
   const file = item.file || item.path || '';
-  // Use ?? for line numbers to preserve explicit 0 values (which will be filtered out)
-  // Default to 1 only if no line info provided at all
-  const lineStart = item.lineStart ?? item.line ?? item.lineNumber ?? 1;
-  const lineEnd = item.lineEnd ?? item.lineStart ?? item.line ?? item.lineNumber ?? lineStart;
+
+  // Parse line numbers - use getLineStart which properly handles invalid vs missing values
+  const lineStart = getLineStart(item);
+  const lineEnd = parseLineNumber(item.lineEnd) ?? lineStart;
 
   // Map category from various field names (type is common alternative)
   const category = item.category || item.type || 'quality';
@@ -177,10 +221,17 @@ export function parseIssues(output: string, agent?: string): Issue[] {
   try {
     let textToParse = output;
 
-    // Check for Claude CLI envelope format first
+    // 1. Check for Claude CLI envelope format {"type":"result","result":"..."}
+    //    This handles JSON escaped content properly
     const cliResult = extractClaudeCliResult(output);
     if (cliResult) {
       textToParse = cliResult;
+    } else {
+      // 2. Try <json>...</json> XML tags directly (for plain text with tags)
+      const xmlTagContent = extractJsonFromXmlTags(output);
+      if (xmlTagContent) {
+        textToParse = xmlTagContent;
+      }
     }
 
     // Try direct parse first

@@ -156,6 +156,7 @@ export interface PipelineContext {
     branch?: string;
     baseRef?: string; // Base commit/branch for comparison
     headRef?: string; // Head commit/branch for comparison
+    commitMessages?: string[]; // Commit messages in the diff range (for understanding intent)
   };
   verbose?: boolean;
   quiet?: boolean; // Suppress all logs (for JSON output mode)

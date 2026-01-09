@@ -1,7 +1,6 @@
 import type { Agent } from './types';
-import { loadAgentsFromDirectory } from './agents/md-loader.js';
+import { loadAgentsFromDirectory, buildAgent } from './agents/md-loader.js';
 import { loadWithPriority } from './md-loader.js';
-import { log } from './logger.js';
 
 /**
  * Load agents from all sources with priority merge
@@ -14,5 +13,5 @@ import { log } from './logger.js';
  */
 export async function loadAgents(projectPath?: string): Promise<Agent[]> {
   const resolvedProjectPath = projectPath || process.cwd();
-  return loadWithPriority<Agent>('agents', loadAgentsFromDirectory, resolvedProjectPath);
+  return loadWithPriority<Agent>('agents', loadAgentsFromDirectory, resolvedProjectPath, buildAgent);
 }

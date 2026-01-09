@@ -7,7 +7,7 @@ import {
 } from '../md-loader.js';
 import { log } from '../logger.js';
 
-function buildAgent(frontmatter: Frontmatter, body: string): Agent | null {
+export function buildAgent(frontmatter: Frontmatter, body: string): Agent | null {
   const name = frontmatter.name;
 
   if (typeof name !== 'string') {

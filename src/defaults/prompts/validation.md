@@ -59,8 +59,69 @@ For EVERY issue, before deciding to keep or filter:
 - Duplicate issues (keep only one)
 - Issues about code not in the diff
 - Low-confidence or "might be" issues
+- **INTENTIONAL TRADE-OFFS: Changes that are documented as deliberate decisions**
+- **FIXES DISGUISED AS ISSUES: When the "problem" is actually a fix for something else**
 
 IMPORTANT: When in doubt, FILTER OUT the issue. Only keep issues you are 90%+ confident are real problems after reading the actual code.
+
+## CRITICAL: Recognize INTENTIONAL DESIGN DECISIONS
+
+Many "issues" are actually INTENTIONAL trade-offs. Before keeping an issue, check if it's a deliberate choice:
+
+### Signs of INTENTIONAL trade-offs (FILTER these):
+
+1. **COMMIT MESSAGES (provided in context above) - CHECK THESE FIRST!**
+   - Commit messages explain WHY changes were made
+   - Look for keywords: "fixes", "prevents", "to avoid", "speed up", "instead of"
+   - If commit says "X to fix Y" and issue complains about X → FILTER
+   - Example: Commit "Init at startup to fix context cancelled" + Issue "Startup delays" → FILTER
+
+2. **Code comments explaining the choice**:
+   - "// Using eager init to avoid context timeouts"
+   - "// Fine-grained locking for better parallelism"
+   - TODO comments acknowledging the trade-off
+
+3. **Common architectural trade-off patterns**:
+
+| Pattern You See | Likely FIXES | FILTER if issue complains about |
+|-----------------|--------------|--------------------------------|
+| Eager init in constructor | Timeout/context errors | "Startup delays" |
+| Fine-grained locking | Slow performance | "Possible race condition" (if TODO exists) |
+| Coarse locking | Race conditions | "Performance bottleneck" |
+| Sync instead of async | Complexity/ordering bugs | "Blocking operation" |
+| Defensive copying | Mutation bugs | "Memory overhead" |
+
+4. **The issue describes the INTENDED behavior**:
+   - If code deliberately does X for reason Y, and issue complains about X → FILTER
+   - The "problem" IS the solution to a different problem
+
+### Example: FILTER as intentional trade-off (commit message)
+```
+Commit message: "Init at startup to fix context cancelled errors. Use finer-grained locking to speed things up."
+Issue: "Blocking initialization causes startup delays"
+→ FILTER: The commit EXPLICITLY says init at startup was to fix context errors
+```
+
+### Example: FILTER as intentional trade-off (code comment)
+```
+Code: Init() called in constructor (not lazily)
+Comment nearby: "// Initialize at startup to prevent gRPC context timeouts"
+Issue: "Blocking initialization causes startup delays"
+→ FILTER: The delay is INTENTIONAL to prevent runtime errors
+```
+
+### Example: KEEP as unintentional side-effect
+```
+Commit message: "Use finer-grained locking to speed things up"
+Code: Lock only protects cache write, not entire operation
+No TODO or comment acknowledging the race condition risk
+Issue: "Race condition - multiple goroutines can build same index"
+→ KEEP: Commit wanted speed, but likely didn't realize the race condition. No acknowledgment.
+```
+
+### Key question: Did the author KNOW about this trade-off?
+- YES (commit message explains it, comment, TODO) → FILTER
+- NO (no acknowledgment anywhere, likely oversight) → KEEP
 
 ## Your Process:
 

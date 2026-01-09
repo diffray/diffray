@@ -15,6 +15,7 @@ import { log } from './logger';
 import { getDefaultStages } from './stages';
 import { executorFactory } from './executors';
 import { agentRegistry } from './agents/registry';
+import { getCommitMessages } from './git';
 
 export class Pipeline {
   private agents: Agent[] = [];
@@ -111,6 +112,15 @@ export class Pipeline {
 
     const startTime = Date.now();
 
+    // Fetch commit messages if we have refs (for understanding change intent)
+    let commitMessages: string[] = [];
+    if (baseRef && headRef) {
+      commitMessages = await getCommitMessages(baseRef, headRef);
+      if (verbose && commitMessages.length > 0) {
+        log.plain(`Fetched ${commitMessages.length} commit message(s) for context`);
+      }
+    }
+
     // Create context
     const context: PipelineContext = {
       diffs,
@@ -121,6 +131,7 @@ export class Pipeline {
         repository: process.cwd(),
         baseRef,
         headRef,
+        commitMessages: commitMessages.length > 0 ? commitMessages : undefined,
       },
       verbose,
       quiet,
