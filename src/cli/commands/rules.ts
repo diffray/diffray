@@ -7,9 +7,9 @@ export const rulesCmd = defineCommand({
     description: `List rules or show rule details
 
 Examples:
-  diffray rules                          # List all rules
-  diffray rules simplicity               # Show simplicity rule details
-  diffray rules test simplicity src/*.ts # Test rule pattern matching`,
+  diffray rules                              # List all rules
+  diffray rules code-security                # Show rule details
+  diffray rules test code-security src/*.ts  # Test rule pattern matching`,
   },
   args: {
     name: {

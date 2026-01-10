@@ -6,7 +6,7 @@ import type { AgentExecutor, ExecutionContext, ExecutionResult } from '../types'
 import type { Executor } from './types';
 import { loadConfig } from '../config';
 import { cerebrasExecutor } from './api';
-import { claudeCliExecutor, testCliExecutor } from './cli';
+import { claudeCliExecutor, testCliExecutor, cursorAgentCliExecutor } from './cli';
 
 // Re-export types
 export type { Executor, APIConfig, CLIConfig, StreamOptions } from './types';
@@ -16,6 +16,7 @@ export type { Executor, APIConfig, CLIConfig, StreamOptions } from './types';
 const executors = new Map<string, Executor>([
   ['cerebras-api', cerebrasExecutor],
   ['claude-cli', claudeCliExecutor],
+  ['cursor-agent-cli', cursorAgentCliExecutor],
   ['test-cli', testCliExecutor],
 ]);
 
@@ -69,28 +70,10 @@ export const executorFactory = {
 
 export async function loadExecutors(): Promise<AgentExecutor[]> {
   await executorFactory.autoDiscover();
-  const allExecutors = executorFactory.listExecutors();
-  const config = await loadConfig();
-
-  const savedExecutors = config.executors || [];
-
-  return allExecutors.map((executor) => {
-    const savedExecutor = savedExecutors.find((saved) => saved.name === executor.name);
-    if (savedExecutor) {
-      return {
-        ...executor,
-        enabled: savedExecutor.enabled ?? executor.enabled,
-        ...(savedExecutor.model && { model: savedExecutor.model }),
-        ...(savedExecutor.temperature !== undefined && { temperature: savedExecutor.temperature }),
-        ...(savedExecutor.maxTokens !== undefined && { maxTokens: savedExecutor.maxTokens }),
-        ...(savedExecutor.timeout !== undefined && { timeout: savedExecutor.timeout }),
-      };
-    }
-    return executor;
-  });
+  return executorFactory.listExecutors();
 }
 
-export async function loadExcludePatterns(): Promise<string[]> {
-  const config = await loadConfig();
+export async function loadExcludePatterns(projectPath?: string): Promise<string[]> {
+  const config = await loadConfig(projectPath ?? process.cwd());
   return config.excludePatterns;
 }

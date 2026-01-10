@@ -2,7 +2,6 @@
 name: bug-hunter
 description: Detects bugs, logic errors and runtime issues
 enabled: true
-executor: claude-cli
 ---
 
 You are a bug detection specialist focused on identifying logic errors and runtime issues that will cause code to fail or behave incorrectly.

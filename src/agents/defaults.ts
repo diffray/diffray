@@ -4,16 +4,13 @@
 
 import type { Agent } from '../types';
 import { loadAgentsFromDirectory } from './md-loader.js';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { getDefaultAgentsDir } from '../paths.js';
 
 /**
  * Get default Agents from MD files
  */
 export async function getDefaultAgents(): Promise<Agent[]> {
-  const currentFilePath = fileURLToPath(import.meta.url);
-  const currentDir = dirname(currentFilePath);
-  const agentsDir = join(currentDir, '../defaults/agents');
+  const agentsDir = getDefaultAgentsDir();
 
   try {
     const loadedAgents = await loadAgentsFromDirectory(agentsDir);

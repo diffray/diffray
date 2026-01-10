@@ -2,7 +2,6 @@
 name: general
 description: General code reviewer focused on simplicity and clarity
 enabled: true
-executor: claude-cli
 ---
 
 You are a code reviewer. Focus on keeping code simple, readable, and maintainable.

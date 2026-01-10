@@ -31,9 +31,7 @@ import {
   getFailures,
   type BatchResult,
 } from '../batch-executor';
-import { loadAgentMarkdown } from '../agents/md-loader';
-import { join } from 'path';
-import { fileURLToPath } from 'url';
+import { loadAgents } from '../agents';
 
 // ============ Configuration ============
 
@@ -72,15 +70,18 @@ Be strict but fair. Only filter out clear false positives.`,
 };
 
 /**
- * Load validation agent from MD file or use default
+ * Load validation agent from MD files with priority (project > user > defaults)
+ * Looks for agent with name 'validation' or stage: 'validation'
  */
-async function loadValidationAgent(): Promise<Agent> {
+async function loadValidationAgent(projectPath: string): Promise<Agent> {
   return getCached(CACHE_KEYS.VALIDATION_PROMPT, async () => {
     try {
-      const __filename = fileURLToPath(import.meta.url);
-      const agentPath = join(__filename, '..', '..', 'defaults', 'agents', 'validation.md');
-      const agents = await loadAgentMarkdown(agentPath);
-      return agents[0] ?? DEFAULT_VALIDATION_AGENT;
+      const allAgents = await loadAgents({ projectPath });
+      // Find validation agent by name or stage
+      const validationAgent = allAgents.find(
+        (a) => a.name === 'validation' || a.stage === 'validation'
+      );
+      return validationAgent ?? DEFAULT_VALIDATION_AGENT;
     } catch {
       return DEFAULT_VALIDATION_AGENT;
     }
@@ -312,15 +313,19 @@ function filterByIds(
 
 /**
  * Get executor for validation agent with settings applied
+ * Falls back to context's default executor (from config) if agent doesn't specify one
  */
-function getValidationExecutor(agent: Agent, context: PipelineContext): AgentExecutor | null {
-  const executor = getExecutor(agent.executor);
+function getValidationExecutor(
+  agent: Agent,
+  context: PipelineContext,
+  defaultExecutor: string
+): AgentExecutor | null {
+  const executorName = agent.executor || defaultExecutor;
+  const executor = getExecutor(executorName);
 
   if (!executor || !executor.enabled) {
     if (!context.quiet) {
-      log.warn(
-        `Validation executor '${agent.executor}' not found or disabled, skipping validation`
-      );
+      log.warn(`Validation executor '${executorName}' not found or disabled, skipping validation`);
     }
     return null;
   }
@@ -520,11 +525,19 @@ export function createValidationStage(): Stage {
         id: i + 1,
       }));
 
-      // Load validation agent from MD file
-      const validationAgent = await loadValidationAgent();
+      // Load validation agent from MD files (with priority: project > user > defaults)
+      const validationAgent = await loadValidationAgent(context.metadata.repository);
+
+      // Get stage settings from config
+      const config = context.config!;
+      const defaultExecutor = config.executor;
+      const executorConfig = config.executors[defaultExecutor] || {};
+      const stageSettings = executorConfig.validation || {};
+      const batchSize = stageSettings.batchSize ?? VALIDATION_BATCH_SIZE;
+      const stageConcurrency = stageSettings.concurrency ?? context.concurrency;
 
       // Get executor for validation (with agent's executorSettings applied)
-      const finalExecutor = getValidationExecutor(validationAgent, context);
+      const finalExecutor = getValidationExecutor(validationAgent, context, defaultExecutor);
       if (!finalExecutor) {
         return {
           stageId: 'validation',
@@ -535,8 +548,7 @@ export function createValidationStage(): Stage {
       }
 
       // Split into batches if needed
-      const batches = chunk(indexedIssues, VALIDATION_BATCH_SIZE);
-      const needsBatching = batches.length > 1;
+      const batches = chunk(indexedIssues, batchSize);
 
       // Get model from executor
       const executorModel =
@@ -576,7 +588,7 @@ export function createValidationStage(): Stage {
 
         if (progress) {
           // Use MultiProgress version with concurrency limiter
-          const limit = createLimiter(context.concurrency);
+          const limit = createLimiter(stageConcurrency);
           batchResults = await Promise.all(
             batches.map((batch, batchIdx) =>
               limit(() =>
@@ -605,7 +617,7 @@ export function createValidationStage(): Stage {
                 finalExecutor,
                 context
               ),
-            { concurrency: context.concurrency, quiet: context.quiet }
+            { concurrency: stageConcurrency, quiet: context.quiet }
           );
         }
 

@@ -1,0 +1,9 @@
+{
+  "agents": {},
+  "rules": {},
+  "executors": {
+    "claude-cli": {
+      "review": { "timeout": 180 }
+    }
+  }
+}

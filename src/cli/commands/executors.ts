@@ -1,69 +1,28 @@
 import { defineCommand } from 'citty';
-import {
-  listExecutors,
-  showExecutor,
-  enableExecutor,
-  disableExecutor,
-} from '../../commands/executors.js';
+import { listExecutors, showExecutor } from '../../commands/executors.js';
 
 export const executorsCmd = defineCommand({
   meta: {
     name: 'executors',
-    description: 'Manage code review executors',
+    description: `List executors or show executor details
+
+Examples:
+  diffray executors              # List all executors
+  diffray executors claude-cli   # Show claude-cli executor details
+  diffray executors cerebras-api # Show cerebras-api executor details`,
   },
-  subCommands: {
-    list: {
-      meta: {
-        description: 'List all executors',
-      },
-      run: () => {
-        listExecutors();
-      },
+  args: {
+    name: {
+      type: 'positional',
+      description: 'Executor name (optional, shows details if provided)',
+      required: false,
     },
-    show: {
-      meta: {
-        description: 'Show executor details',
-      },
-      args: {
-        id: {
-          type: 'positional',
-          description: 'Executor ID',
-          required: true,
-        },
-      },
-      run: ({ args }) => {
-        showExecutor(args.id!);
-      },
-    },
-    enable: {
-      meta: {
-        description: 'Enable executor',
-      },
-      args: {
-        id: {
-          type: 'positional',
-          description: 'Executor ID',
-          required: true,
-        },
-      },
-      run: ({ args }) => {
-        enableExecutor(args.id!);
-      },
-    },
-    disable: {
-      meta: {
-        description: 'Disable executor',
-      },
-      args: {
-        id: {
-          type: 'positional',
-          description: 'Executor ID',
-          required: true,
-        },
-      },
-      run: ({ args }) => {
-        disableExecutor(args.id!);
-      },
-    },
+  },
+  run: async ({ args }) => {
+    if (args.name) {
+      await showExecutor(args.name);
+    } else {
+      await listExecutors();
+    }
   },
 });

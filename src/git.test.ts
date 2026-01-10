@@ -1,4 +1,4 @@
-import { test, expect, describe } from 'bun:test';
+import { test, expect, describe } from 'vitest';
 import { isGitRepository, getChangedFiles, getFileStatus, getAllDiffs } from './git.js';
 
 describe('Git Module', () => {

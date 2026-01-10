@@ -2,10 +2,30 @@
  * Executor management commands
  */
 
+import { execFileSync } from 'node:child_process';
 import { loadExecutors, getExecutor } from '../executors.js';
-import { updateConfig } from '../config.js';
+import { loadConfig } from '../config.js';
 import { log } from '../logger';
 import type { AgentExecutor } from '../types.js';
+
+/**
+ * Get install command for CLI executor
+ */
+function getInstallCommand(e: AgentExecutor): string | undefined {
+  return e.type === 'cli' ? e.installCommand : undefined;
+}
+
+/**
+ * Check if a CLI command is available in PATH
+ */
+function isCommandAvailable(command: string): boolean {
+  try {
+    execFileSync('which', [command], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // Helper to get model from executor (handles union type)
 function getModel(e: AgentExecutor): string | undefined {
@@ -14,10 +34,6 @@ function getModel(e: AgentExecutor): string | undefined {
     : e.type === 'cli'
       ? (e as { model?: string }).model
       : undefined;
-}
-
-function getTimeout(e: AgentExecutor): number | undefined {
-  return e.type === 'cli' ? e.timeout : undefined;
 }
 
 /**
@@ -36,72 +52,29 @@ function getAvailableSettings(executorName: string): string[] {
 }
 
 /**
- * List all Executors in table format
+ * List current executor configuration
  */
 export async function listExecutors(): Promise<void> {
-  const executors = await loadExecutors();
+  const config = await loadConfig(process.cwd());
+  const currentExecutor = config.executor;
+  const executorConfig = config.executors[currentExecutor] || {};
 
-  log.robot('Available Executors');
+  log.plain(`Executor: \x1b[36m${currentExecutor}\x1b[0m`);
   log.newline();
 
-  if (executors.length === 0) {
-    log.plain('No Executors configured');
-    return;
+  log.plain('Stages:');
+
+  const knownStages = ['review', 'validation'] as const;
+  for (const stage of knownStages) {
+    const stageConfig = executorConfig[stage];
+
+    const settings: string[] = [];
+    if (stageConfig?.model) settings.push(`model=${stageConfig.model}`);
+    if (stageConfig?.timeout) settings.push(`timeout=${stageConfig.timeout}`);
+
+    const settingsStr = settings.length > 0 ? ` (${settings.join(', ')})` : '';
+    log.plain(`  ${stage.padEnd(12)} → ${currentExecutor}${settingsStr}`);
   }
-
-  // Get available settings for each executor
-  const settingsMap = new Map<string, string[]>();
-  for (const e of executors) {
-    settingsMap.set(e.name, getAvailableSettings(e.name));
-  }
-
-  // Calculate column widths
-  const cols = {
-    status: 1,
-    name: Math.max(8, ...executors.map((e) => e.name.length)),
-    model: Math.max(5, ...executors.map((e) => (getModel(e) || '-').length)),
-    timeout: 7,
-    settings: 20,
-  };
-
-  // Header
-  const header = [
-    ''.padEnd(cols.status),
-    'Executor'.padEnd(cols.name),
-    'Model'.padEnd(cols.model),
-    'Timeout'.padEnd(cols.timeout),
-    'Available Settings'.padEnd(cols.settings),
-  ].join('  ');
-
-  const separator = [
-    '-'.repeat(cols.status),
-    '-'.repeat(cols.name),
-    '-'.repeat(cols.model),
-    '-'.repeat(cols.timeout),
-    '-'.repeat(cols.settings),
-  ].join('  ');
-
-  log.plain(header);
-  log.plain(separator);
-
-  // Rows
-  for (const executor of executors) {
-    const status = executor.enabled ? '●' : '○';
-    const model = getModel(executor) || '-';
-    const timeout = getTimeout(executor) ? `${getTimeout(executor)}s` : '-';
-    const settings = settingsMap.get(executor.name)?.join(', ') || '-';
-
-    const row = [
-      status.padEnd(cols.status),
-      executor.name.padEnd(cols.name),
-      model.padEnd(cols.model),
-      timeout.padEnd(cols.timeout),
-      settings.padEnd(cols.settings),
-    ].join('  ');
-
-    log.plain(row);
-  }
-
   log.newline();
 }
 
@@ -114,18 +87,31 @@ export async function showExecutor(executorName: string): Promise<void> {
 
   if (!executor) {
     log.error(`Executor not found: ${executorName}`);
+    log.newline();
+    log.plain('Available executors:');
+    for (const e of executors) {
+      log.plain(`  • ${e.name}`);
+    }
     process.exit(1);
   }
 
   log.robot(`Executor: ${executor.name}`);
   log.newline();
-  log.plain(`Name: ${executor.name}`);
   log.plain(`Type: ${executor.type}`);
   log.plain(`Description: ${executor.description}`);
-  log.plain(`Enabled: ${executor.enabled ? 'Yes' : 'No'}`);
 
-  if (executor.type === 'cli') {
-    log.plain(`Command: ${executor.command}`);
+  if (executor.type === 'cli' && executor.command) {
+    const command = executor.command;
+    const installed = isCommandAvailable(command);
+    log.plain(
+      `Command: ${command} ${installed ? '\x1b[32m✓\x1b[0m' : '\x1b[33m✗ not installed\x1b[0m'}`
+    );
+    if (!installed) {
+      const installCmd = getInstallCommand(executor);
+      if (installCmd) {
+        log.plain(`Install: ${installCmd}`);
+      }
+    }
     log.plain(`Args: ${executor.args?.join(' ') || '(none)'}`);
     const cliModel = getModel(executor);
     if (cliModel) {
@@ -151,47 +137,13 @@ export async function showExecutor(executorName: string): Promise<void> {
     }
   }
 
-  // Show available settings that can be overridden
+  // Show available settings
   const availableSettings = getAvailableSettings(executorName);
   if (availableSettings.length > 0) {
     log.newline();
-    log.plain('Available Settings (for executorSettings in agent frontmatter):');
+    log.plain('Stage Settings (in config.executors.<executor>.<stage>):');
     for (const setting of availableSettings) {
-      log.plain(`  - ${setting}`);
+      log.plain(`  • ${setting}`);
     }
   }
-}
-
-/**
- * Enable Executor
- */
-export async function enableExecutor(executorName: string): Promise<void> {
-  const executors = await loadExecutors();
-  const executor = executors.find((e) => e.name === executorName);
-
-  if (!executor) {
-    log.error(`Executor not found: ${executorName}`);
-    process.exit(1);
-  }
-
-  executor.enabled = true;
-  await updateConfig({ executors });
-  log.success(`Enabled Executor: ${executor.name}`);
-}
-
-/**
- * Disable Executor
- */
-export async function disableExecutor(executorName: string): Promise<void> {
-  const executors = await loadExecutors();
-  const executor = executors.find((e) => e.name === executorName);
-
-  if (!executor) {
-    log.error(`Executor not found: ${executorName}`);
-    process.exit(1);
-  }
-
-  executor.enabled = false;
-  await updateConfig({ executors });
-  log.success(`Disabled Executor: ${executor.name}`);
 }

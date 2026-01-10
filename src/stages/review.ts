@@ -236,7 +236,7 @@ function aggregateBatchResults(
   // Create combined AgentResult
   return {
     agent: agent.name,
-    executor: agent.executor,
+    executor: agent.executor || 'unknown',
     success: batchSuccess,
     output: `Processed ${batches.length} batch(es), found ${allIssues.length} issue(s)`,
     duration: totalDuration,
@@ -255,11 +255,17 @@ export function createReviewStage(): Stage {
     execute: async (context: PipelineContext): Promise<StageResult> => {
       const startTime = Date.now();
 
-      // Create concurrency limiter from context
-      const limit = createLimiter(context.concurrency);
-
       // Load global instructions from ~/.diffray/instructions.md
       const instructions = await loadInstructions();
+
+      // Get stage settings from config
+      const config = context.config!;
+      const executorConfig = config.executors[config.executor] || {};
+      const stageSettings = executorConfig.review || {};
+      const stageConcurrency = stageSettings.concurrency ?? context.concurrency;
+
+      // Create concurrency limiter
+      const limit = createLimiter(stageConcurrency);
 
       // Show token counter info in verbose mode
       if (context.verbose && !context.quiet) {
@@ -331,92 +337,112 @@ export function createReviewStage(): Stage {
       }
 
       // Execute all Agents in parallel (only those with batch info)
-      const results = await Promise.all(
-        agentsToExecute.map(async (agent) => {
-          try {
-            // Get executor
-            const executor = executorFactory.get(agent.executor);
-            if (!executor) {
-              if (!context.quiet) {
-                log.warn(`Executor not found: ${agent.executor}`);
+      let results: (AgentResult | null)[];
+      try {
+        results = await Promise.all(
+          agentsToExecute.map(async (agent) => {
+            try {
+              // Get executor
+              const executorName = agent.executor || config.executor;
+              const executor = executorFactory.get(executorName);
+              if (!executor) {
+                if (!context.quiet) {
+                  log.warn(`Executor not found: ${executorName}`);
+                }
+                return null;
               }
-              return null;
-            }
 
-            // Get pre-calculated batch info (guaranteed to exist for agentsToExecute)
-            const batchInfo = agentBatchInfo.get(agent.name)!;
-            const { batches, systemPrompt } = batchInfo;
+              // Get pre-calculated batch info (guaranteed to exist for agentsToExecute)
+              const batchInfo = agentBatchInfo.get(agent.name)!;
+              const { batches, systemPrompt } = batchInfo;
 
-            const systemTokens = estimateTokens(systemPrompt);
+              const systemTokens = estimateTokens(systemPrompt);
 
-            // Log detailed batch information only in verbose mode (summary already shown upfront)
-            if (!context.quiet && context.verbose) {
-              batches.forEach((batch) => {
-                log.plain(`  ${formatBatchInfo(batch, true)}`);
-              });
-            }
+              // Log detailed batch information only in verbose mode (summary already shown upfront)
+              if (!context.quiet && context.verbose) {
+                batches.forEach((batch) => {
+                  log.plain(`  ${formatBatchInfo(batch, true)}`);
+                });
+              }
 
-            // Execute batches with concurrency limit
-            const batchResults = await Promise.all(
-              batches.map((batch) =>
-                executeBatch(
-                  batch,
-                  batches,
-                  agent,
-                  executor,
-                  systemPrompt,
-                  systemTokens,
-                  context,
-                  limit,
-                  progress
+              // Execute batches with concurrency limit
+              const batchResults = await Promise.all(
+                batches.map((batch) =>
+                  executeBatch(
+                    batch,
+                    batches,
+                    agent,
+                    executor,
+                    systemPrompt,
+                    systemTokens,
+                    context,
+                    limit,
+                    progress
+                  )
                 )
-              )
-            );
+              );
 
-            // Aggregate batch results
-            const agentResult = aggregateBatchResults(batchResults, agent, batches);
+              // Aggregate batch results
+              const agentResult = aggregateBatchResults(batchResults, agent, batches);
 
-            // Add all issues to context
-            context.issues.push(...agentResult.issues);
-            context.results.push(agentResult);
+              // Add all issues to context
+              context.issues.push(...agentResult.issues);
+              context.results.push(agentResult);
 
-            return agentResult;
-          } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            if (!context.quiet) {
-              log.error(`${agent.name}: ${errorMessage}`);
+              return agentResult;
+            } catch (error) {
+              const errorMessage = error instanceof Error ? error.message : String(error);
+              if (!context.quiet) {
+                log.error(`${agent.name}: ${errorMessage}`);
+              }
+
+              const agentResult: AgentResult = {
+                agent: agent.name,
+                executor: agent.executor || 'unknown',
+                success: false,
+                output: '',
+                error: errorMessage,
+                duration: 0,
+                issues: [],
+              };
+
+              context.results.push(agentResult);
+              return agentResult;
             }
-
-            const agentResult: AgentResult = {
-              agent: agent.name,
-              executor: agent.executor,
-              success: false,
-              output: '',
-              error: errorMessage,
-              duration: 0,
-              issues: [],
-            };
-
-            context.results.push(agentResult);
-            return agentResult;
-          }
-        })
-      );
-
-      // Stop progress display
-      progress?.stop();
+          })
+        );
+      } finally {
+        // Stop progress display (guaranteed cleanup)
+        progress?.stop();
+      }
 
       const successCount = results.filter((r) => r?.success).length;
       const failedAgents = results.filter((r) => r && !r.success);
       const failureCount = failedAgents.length;
 
+      const duration = Date.now() - startTime;
+      const durationStr = duration >= 1000 ? `${(duration / 1000).toFixed(1)}s` : `${duration}ms`;
+
       if (!context.quiet) {
-        const duration = Date.now() - startTime;
-        const durationStr = duration >= 1000 ? `${(duration / 1000).toFixed(1)}s` : `${duration}ms`;
-        log.done(`Review complete: ${successCount}/${agentsToExecute.length} agents (${durationStr})`);
+        log.done(
+          `Review complete: ${successCount}/${agentsToExecute.length} agents (${durationStr})`
+        );
       }
 
-      // Collect error messages from failed agents
+      // Warn about failed agents but continue with validation for successful ones
+      if (failureCount > 0 && !context.quiet) {
+        for (const agent of failedAgents) {
+          log.warn(
+            `Agent "${agent?.agent}" failed: ${agent?.error || 'execution failed'} - issues from this agent excluded`
+          );
+        }
+      }
+
+      // Stage succeeds if at least one agent succeeded (so validation can run)
+      // Only fail if ALL agents failed (nothing to validate)
+      const stageSuccess = successCount > 0;
+
+      // Collect error messages for reporting
       let stageError: string | undefined;
       if (failureCount > 0) {
         const errorParts = failedAgents
@@ -428,8 +454,8 @@ export function createReviewStage(): Stage {
       return {
         stageId: 'review',
         stageName: 'Review',
-        success: failureCount === 0,
-        duration: Date.now() - startTime,
+        success: stageSuccess,
+        duration,
         error: stageError,
       };
     },

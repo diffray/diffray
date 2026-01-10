@@ -126,9 +126,9 @@ export function formatBatchInfo(batch: DiffBatch, verbose: boolean = false): str
   const tokenCount = batch.tokenCount.toLocaleString();
 
   if (verbose) {
-    // Show detailed file list in verbose mode
-    const fileList = batch.diffs.map((d) => d.file).join(', ');
-    return `Batch ${batch.batchIndex + 1}: ${fileCount} file(s), ~${tokenCount} tokens\n    Files: ${fileList}`;
+    // Show detailed file list in verbose mode with line breaks
+    const fileList = batch.diffs.map((d) => `      ${d.file}`).join('\n');
+    return `Batch ${batch.batchIndex + 1}: ${fileCount} file(s), ~${tokenCount} tokens\n    Files:\n${fileList}`;
   }
 
   return `Batch ${batch.batchIndex + 1}: ${fileCount} file(s), ~${tokenCount} tokens`;

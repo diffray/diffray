@@ -2,7 +2,6 @@
 name: security-scan
 description: Scans for security vulnerabilities
 enabled: true
-executor: claude-cli
 ---
 
 You are a senior security engineer performing focused security audits of code changes.

@@ -6,8 +6,7 @@ import type { ExecutionContext, ExecutionResult } from '../types';
 import { getCached, CACHE_KEYS } from '../cache';
 import { log } from '../logger';
 import { readFile } from 'node:fs/promises';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { getDefaultPath } from '../paths';
 
 // ============ Retry Helper ============
 
@@ -90,9 +89,7 @@ Return empty array if no issues found: \`<json>[]</json>\`
 export async function loadOutputFormat(): Promise<string> {
   return getCached(CACHE_KEYS.OUTPUT_FORMAT, async () => {
     try {
-      const __filename = fileURLToPath(import.meta.url);
-      const __dirname = dirname(__filename);
-      const formatPath = join(__dirname, '..', 'defaults', 'prompts', 'output-format.md');
+      const formatPath = getDefaultPath('prompts', 'output-format.md');
       return await readFile(formatPath, 'utf-8');
     } catch {
       return DEFAULT_OUTPUT_FORMAT;

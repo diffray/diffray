@@ -1,4 +1,4 @@
-import { test, expect, describe } from 'bun:test';
+import { test, expect, describe } from 'vitest';
 import { createValidationStage } from './validation';
 import type { PipelineContext, Issue, AgentResult } from '../types';
 

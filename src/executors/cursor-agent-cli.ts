@@ -1,5 +1,8 @@
 /**
- * Claude CLI Executor - streaming JSON parsing for Claude Code CLI
+ * Cursor Agent CLI Executor - streaming JSON parsing for Cursor Agent CLI
+ *
+ * Cursor Agent CLI is installed via: curl https://cursor.com/install -fsS | bash
+ * Binary location: ~/.local/bin/agent or ~/.local/bin/cursor-agent
  */
 
 import { spawn } from 'node:child_process';
@@ -25,6 +28,11 @@ function formatPreliminaryIssues(result: string, agentName: string): void {
 
 /**
  * Parse a single streaming message and handle output
+ *
+ * NOTE: This intentionally duplicates logic from claude-cli.ts.
+ * Both CLIs use similar streaming JSON format, but keeping separate
+ * implementations allows each executor to evolve independently
+ * without coupling them through shared abstractions.
  */
 interface StreamMessage {
   type?: string;
@@ -78,7 +86,7 @@ function handleStreamMessage(
     if (message.subtype === 'success' && message.result) {
       return message.result;
     } else if (message.subtype === 'error') {
-      throw new Error(message.error || 'Claude CLI returned error');
+      throw new Error(message.error || 'Cursor Agent CLI returned error');
     }
   }
 
@@ -86,16 +94,16 @@ function handleStreamMessage(
 }
 
 /**
- * Stream and parse Claude CLI JSON output
+ * Stream and parse Cursor Agent CLI JSON output
  */
-export async function streamClaudeCli(
+export async function streamCursorAgentCli(
   cmdArgs: string[],
   env: Record<string, string>,
   timeout: number,
   opts: StreamOptions
 ): Promise<string> {
   if (cmdArgs.length === 0) {
-    throw new Error('No command provided to streamClaudeCli');
+    throw new Error('No command provided to streamCursorAgentCli');
   }
 
   ensureSigintHandler();
@@ -137,9 +145,12 @@ export async function streamClaudeCli(
             }
           }
         } catch {
-          if (process.env.DEBUG) {
-            log.plain(`📡 Stream parse error: ${line}`);
+          // Not JSON - might be plain text output
+          if (opts.verbose) {
+            log.plain(`📡 ${line}`);
           }
+          // Accumulate non-JSON output as result
+          finalResult += line + '\n';
         }
       }
     });
@@ -155,7 +166,8 @@ export async function streamClaudeCli(
             finalResult = message.result;
           }
         } catch {
-          // Ignore final buffer parse errors
+          // Not JSON - add to result
+          finalResult += buffer;
         }
       }
 

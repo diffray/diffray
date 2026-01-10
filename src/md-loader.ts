@@ -1,11 +1,11 @@
 import { log } from './logger.js';
 import { glob } from 'glob';
 import { readFile } from 'node:fs/promises';
-import { join, basename, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import YAML from 'yaml';
 import type { ConfigSource } from './types.js';
+import { getDefaultsDir } from './paths.js';
 
 type FrontmatterValue = string | number | boolean | null | FrontmatterValue[];
 export type Frontmatter = Record<string, FrontmatterValue>;
@@ -184,11 +184,8 @@ function getPriorityPaths(
   subdir: string,
   projectPath: string
 ): { defaults: string; user: string; project: string } {
-  const currentFile = fileURLToPath(import.meta.url);
-  const currentDir = dirname(currentFile);
-
   return {
-    defaults: join(currentDir, 'defaults', subdir),
+    defaults: join(getDefaultsDir(), subdir),
     user: join(homedir(), '.diffray', subdir),
     project: join(projectPath, '.diffray', subdir),
   };
