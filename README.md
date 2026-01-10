@@ -1,37 +1,20 @@
+<table>
+  <tr>
+    <td><img src="logo.svg" alt="diffray" width="120"></td>
+    <td>
+      <h1>diffray</h1>
+      <strong>Free open-source multi-agent code review</strong>
+    </td>
+  </tr>
+</table>
+
+> **What is this?** A CLI tool that runs multiple AI agents to review your code changes. Each agent specializes in different aspects: bugs, security, performance, code style. Works with [Claude Code](https://github.com/anthropics/claude-code) or [Cursor Agent](https://cursor.com).
+>
+> **How is it different from [diffray.ai](https://diffray.ai)?** The cloud platform automatically learns from your team's review feedback and generates rules. This CLI version requires manual rule configuration but gives you full control and runs locally.
+
 <p align="center">
-  <img src="logo.svg" alt="diffray" width="200">
+  <img src="/docs/diffray.png" alt="diffray in action" width="800">
 </p>
-
-<h1 align="center">diffray</h1>
-
-<p align="center">
-  <strong>AI code reviewer that finds real bugs in your code</strong>
-</p>
-
-## Table of Contents
-
-**Getting Started**
-- [What is diffray?](#what-is-diffray)
-- [Quick Start](#quick-start) · [Quick Reference](#quick-reference)
-- [Prerequisites](#prerequisites)
-- [Common Commands](#common-commands)
-- [How It Works](#how-it-works)
-
-**Customization**
-- [Configuration](#configuration-optional)
-- [Creating Custom Agents](#creating-custom-agents)
-- [Creating Custom Rules](#creating-custom-rules)
-- [Overriding Agents and Rules](#overriding-agents-and-rules)
-
-**Reference**
-- [FAQ](#faq)
-- [Development](#development)
-- [Contributing](CONTRIBUTING.md)
-- [Changelog](CHANGELOG.md)
-
----
-
-> **Note:** This is a lightweight, open-source version of diffray. While inspired by the [diffray.ai](https://diffray.ai) platform, it differs significantly from the full cloud solution. The main difference is the lack of automatic feedback collection and rule generation based on your team's review history — though you can implement custom rules yourself. Thanks to powerful CLI agents like [Claude Code](https://github.com/anthropics/claude-code) and [Cursor Agent](https://cursor.com), this version can perform code reviews at a professional level. However, be aware that token consumption can grow significantly with many rules and changed files.
 
 ## What is diffray?
 
@@ -49,36 +32,31 @@ You write code → diffray analyzes it → You get a list of issues to fix
 - **Security issues** - SQL injection, XSS, exposed secrets
 - **Performance problems** - memory leaks, slow queries, unnecessary re-renders
 
-### Example output:
 
-```
-⚡ diffray - AI Code Review
+---
 
-■ Found 2 issues:
+## Table of Contents
 
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ CRITICAL | security | src/api/auth.ts:45                                    │
-├─────────────────────────────────────────────────────────────────────────────┤
-│ SQL Injection vulnerability                                                 │
-│                                                                             │
-│ User input is directly concatenated into SQL query without sanitization.    │
-│ An attacker could execute arbitrary SQL commands.                           │
-│                                                                             │
-│ Suggestion: Use parameterized queries instead of string concatenation       │
-└─────────────────────────────────────────────────────────────────────────────┘
+**Getting Started**
+- [Quick Start](#quick-start)
+- [Quick Reference](#quick-reference)
+- [Prerequisites](#prerequisites)
+- [Common Commands](#common-commands)
+- [How It Works](#how-it-works)
 
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ HIGH | bug | src/utils/parser.ts:23                                         │
-├─────────────────────────────────────────────────────────────────────────────┤
-│ Possible null pointer exception                                             │
-│                                                                             │
-│ data.user can be undefined, but .name is accessed without null check.       │
-│                                                                             │
-│ Suggestion: Add optional chaining: data.user?.name                          │
-└─────────────────────────────────────────────────────────────────────────────┘
+**Customization**
+- [Configuration](#configuration-optional)
+- [Creating Custom Agents](#creating-custom-agents)
+- [Creating Custom Rules](#creating-custom-rules)
+- [Overriding Agents and Rules](#overriding-agents-and-rules)
 
-✓ Review completed in 12s
-```
+**Reference**
+- [FAQ](#faq)
+- [Development](#development)
+- [Contributing](CONTRIBUTING.md)
+- [Changelog](CHANGELOG.md)
+
+---
 
 ## Quick Start
 
@@ -142,7 +120,7 @@ If you use Cursor IDE, you can use its agent CLI instead:
 curl https://cursor.com/install -fsS | bash
 
 # Authorize (opens browser)
-cursor-agent auth
+cursor-agent
 ```
 
 Then switch diffray to use it:
@@ -155,16 +133,6 @@ diffray config init
 # Or per-run
 diffray review --executor cursor-agent-cli
 ```
-
-### ⚠️ Token Usage & Costs
-
-**Important:** diffray consumes AI tokens during analysis. Each review typically uses:
-
-| Review size | Tokens | Estimated cost |
-|-------------|--------|----------------|
-| Small (1-5 files) | ~10-50K | $0.01-0.05 |
-| Medium (5-20 files) | ~50-200K | $0.05-0.20 |
-| Large (20+ files) | ~200K+ | $0.20+ |
 
 Costs depend on your AI provider's pricing. Claude Code uses your Anthropic account or Claude Pro subscription. Cursor Agent uses your Cursor subscription.
 
