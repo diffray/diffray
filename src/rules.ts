@@ -9,6 +9,7 @@ import {
 } from './md-loader';
 import { readFile } from 'node:fs/promises';
 import { log } from './logger';
+import { loadConfig } from './config';
 
 // ============ Rule Markdown Parsing ============
 
@@ -70,11 +71,29 @@ export function parseSingleRule(content: string): Rule | null {
  * Load rule refs from MD files (lightweight, no prompts)
  *
  * Loads rule refs from all sources (defaults, user, project) with priority merge.
+ * Applies config.rules overrides (enabled, agent) and filters disabled rules.
  * Prompts are loaded lazily via loadRuleFromRef when needed.
  */
 export async function loadRuleRefs(projectPath?: string): Promise<RuleRef[]> {
   const resolvedProjectPath = projectPath || process.cwd();
-  return loadRuleRefsWithPriority(resolvedProjectPath);
+  const refs = await loadRuleRefsWithPriority(resolvedProjectPath);
+
+  // Apply config.rules overrides (with project config)
+  const config = await loadConfig(resolvedProjectPath);
+
+  return refs
+    .map((ref) => {
+      const override = config.rules[ref.name] || {};
+      return {
+        ...ref,
+        // Apply agent override if present
+        agent: override.agent ?? ref.agent,
+        // Track enabled state (default true)
+        _enabled: override.enabled ?? true,
+      };
+    })
+    .filter((ref) => ref._enabled !== false)
+    .map(({ _enabled, ...ref }) => ref); // Remove internal _enabled field
 }
 
 /**

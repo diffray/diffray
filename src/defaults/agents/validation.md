@@ -4,7 +4,6 @@ description: Validates issues found by other agents and filters out false positi
 enabled: true
 order: 999
 stage: validation
-executor: claude-cli
 executorSettings:
   model: opus
   timeout: 180

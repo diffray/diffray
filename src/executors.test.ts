@@ -1,4 +1,4 @@
-import { test, expect, describe } from 'bun:test';
+import { test, expect, describe } from 'vitest';
 import {
   getExecutor,
   listExecutors,
@@ -136,7 +136,7 @@ describe('Executors', () => {
 
       expect(info?.name).toBe('claude-cli');
       expect(info?.type).toBe('cli');
-      expect(info?.model).toBe('sonnet');
+      expect(info?.model).toBe('opus');
       expect(info?.timeout).toBe(120);
     });
 

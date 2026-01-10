@@ -20,7 +20,6 @@ import { configCmd } from './cli/commands/config';
 import { agentsCmd } from './cli/commands/agents';
 import { executorsCmd } from './cli/commands/executors';
 import { rulesCmd } from './cli/commands/rules';
-import { cacheCmd } from './cli/commands/cache';
 
 function getStatusIcon(status: string): string {
   switch (status) {
@@ -46,6 +45,10 @@ async function runReview(args: {
   head?: string;
   skipValidation?: boolean;
   agent?: string;
+  excludeAgent?: string;
+  rule?: string;
+  excludeRule?: string;
+  executor?: string;
 }) {
   const {
     verbose = false,
@@ -56,15 +59,27 @@ async function runReview(args: {
     head,
     skipValidation = false,
     agent,
+    excludeAgent,
+    rule,
+    excludeRule,
+    executor,
   } = args;
   const agentFilter = agent ? agent.split(',').map((a: string) => a.trim()) : undefined;
+  const excludeAgents = excludeAgent
+    ? excludeAgent.split(',').map((a: string) => a.trim())
+    : undefined;
+  const ruleFilter = rule ? rule.split(',').map((r: string) => r.trim()) : undefined;
+  const excludeRules = excludeRule
+    ? excludeRule.split(',').map((r: string) => r.trim())
+    : undefined;
   const severityFilter = severity ? severity.split(',').map((s: string) => s.trim()) : undefined;
 
   if (!json) {
     log.logo();
   }
 
-  const config = await loadConfig();
+  const projectPath = process.cwd();
+  const config = await loadConfig(projectPath);
 
   const isRepo = await isGitRepository();
   if (!isRepo) {
@@ -145,6 +160,9 @@ async function runReview(args: {
 
   if (filteredDiffs.length === 0) {
     log.success('No changes (all excluded)');
+    if (originalRef) {
+      await checkoutRef(originalRef);
+    }
     return;
   }
 
@@ -189,14 +207,19 @@ async function runReview(args: {
     log.success(`Loaded ${enabledExecutors.length} executor(s)`);
   }
 
-  let agents = await loadAgents();
+  // Load agents with executor override if provided (applies correct settings)
+  const agents = await loadAgents({ projectPath, executorOverride: executor });
 
-  // Filter agents if --agent flag provided
-  if (agentFilter && agentFilter.length > 0) {
-    agents = agents.filter((a) => agentFilter.includes(a.name));
-    if (!json) {
-      log.info(`Filtering agents: ${agentFilter.join(', ')}`);
-    }
+  if (executor && !json) {
+    log.info(`Using executor: ${executor}`);
+  }
+
+  // Log filtering info
+  if (!json) {
+    if (agentFilter) log.info(`Agent filter: ${agentFilter.join(', ')}`);
+    if (excludeAgents) log.info(`Excluding agents: ${excludeAgents.join(', ')}`);
+    if (ruleFilter) log.info(`Rule filter: ${ruleFilter.join(', ')}`);
+    if (excludeRules) log.info(`Excluding rules: ${excludeRules.join(', ')}`);
   }
 
   const enabledAgents = agents.filter((a) => a.enabled);
@@ -205,7 +228,7 @@ async function runReview(args: {
     log.newline();
   }
 
-  // Pipeline handles registration internally
+  // Pipeline handles registration and filtering internally
   const pipeline = new Pipeline(agents, executors);
   const result = await pipeline.execute(filteredDiffs, {
     verbose,
@@ -215,6 +238,10 @@ async function runReview(args: {
     stream,
     baseRef: base,
     headRef: head,
+    agentFilter,
+    excludeAgents,
+    ruleFilter,
+    excludeRules,
   });
 
   const issuesFromResults = result.context.results.flatMap((r) => r.issues);
@@ -304,8 +331,11 @@ Examples:
   diffray review                        Review uncommitted changes
   diffray review --base main            Compare current branch to main
   diffray review --agent general        Run only general agent
-  diffray review --agent bug-hunter,security-scan
+  diffray review --exclude-agent security-scan  Exclude specific agent
+  diffray review --rule code-security   Run only specific rule
+  diffray review --exclude-rule code-bugs  Exclude specific rule
   diffray review --severity critical,high
+  diffray review --executor cursor-agent-cli  Use specific executor
   diffray review --stream               Show thinking and tool usage`,
   },
   args: {
@@ -341,9 +371,30 @@ Examples:
       type: 'string',
       description: 'Run only specific agents (comma-separated: bug-hunter,security-scan)',
     },
+    'exclude-agent': {
+      type: 'string',
+      description: 'Exclude specific agents (comma-separated)',
+    },
+    rule: {
+      type: 'string',
+      description: 'Run only specific rules (comma-separated: code-security,code-bugs)',
+    },
+    'exclude-rule': {
+      type: 'string',
+      description: 'Exclude specific rules (comma-separated)',
+    },
+    executor: {
+      type: 'string',
+      description: 'Override executor for all agents (e.g., cursor-agent-cli, claude-cli)',
+    },
   },
   run: async ({ args }) => {
-    await runReview({ ...args, skipValidation: args['skip-validation'] });
+    await runReview({
+      ...args,
+      skipValidation: args['skip-validation'],
+      excludeAgent: args['exclude-agent'],
+      excludeRule: args['exclude-rule'],
+    });
   },
 });
 
@@ -359,6 +410,5 @@ export const main = defineCommand({
     agents: agentsCmd,
     executors: executorsCmd,
     rules: rulesCmd,
-    cache: cacheCmd,
   },
 });

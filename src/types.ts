@@ -53,8 +53,8 @@ export interface Agent {
   enabled: boolean;
   order: number;
 
-  // Which executor will execute this task
-  executor: string;
+  // Which executor will execute this task (if not set, uses defaultExecutor from config)
+  executor?: string;
 
   // Executor-specific settings (e.g., temperature, model, timeout)
   executorSettings?: Record<string, unknown>;
@@ -108,6 +108,7 @@ export interface CLIAgentExecutor extends BaseAgentExecutor {
   env?: Record<string, string>; // Environment variables
   timeout?: number; // Timeout in seconds
   model?: string; // Model for CLI tools like claude-cli
+  installCommand?: string; // Installation hint (e.g., "npm install -g @anthropic-ai/claude-code")
 }
 
 /**
@@ -173,6 +174,13 @@ export interface PipelineContext {
   agents?: Agent[]; // Loaded agents from load-rules stage
   matchedRules?: MatchedRule[]; // Matched rules from match-rules stage
   skipValidation?: boolean; // Skip validation stage
+  // Filtering options
+  ruleFilter?: string[]; // Only run these rules (by name)
+  excludeRules?: string[]; // Exclude these rules (by name)
+  agentFilter?: string[]; // Only run these agents (by name)
+  excludeAgents?: string[]; // Exclude these agents (by name)
+  // Config (loaded once in pipeline)
+  config?: import('./config').Config;
 }
 
 export interface AgentResult {

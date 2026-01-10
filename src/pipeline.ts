@@ -12,10 +12,11 @@ import type {
   StageResult,
 } from './types';
 import { log } from './logger';
-import { getDefaultStages } from './stages';
+import { getStages } from './stages';
 import { executorFactory } from './executors';
 import { agentRegistry } from './agents/registry';
 import { getCommitMessages } from './git';
+import { loadConfig } from './config';
 
 export class Pipeline {
   private agents: Agent[] = [];
@@ -36,7 +37,7 @@ export class Pipeline {
       agentRegistry.register(agent);
     }
 
-    this.stages = stages || getDefaultStages();
+    this.stages = stages || getStages();
   }
 
   /**
@@ -98,6 +99,10 @@ export class Pipeline {
       stream?: boolean;
       baseRef?: string;
       headRef?: string;
+      ruleFilter?: string[];
+      excludeRules?: string[];
+      agentFilter?: string[];
+      excludeAgents?: string[];
     } = {}
   ): Promise<PipelineResult> {
     const {
@@ -108,9 +113,17 @@ export class Pipeline {
       stream = false,
       baseRef,
       headRef,
+      ruleFilter,
+      excludeRules,
+      agentFilter,
+      excludeAgents,
     } = options;
 
     const startTime = Date.now();
+    const projectPath = process.cwd();
+
+    // Load config once for entire pipeline
+    const config = await loadConfig(projectPath);
 
     // Fetch commit messages if we have refs (for understanding change intent)
     let commitMessages: string[] = [];
@@ -128,7 +141,7 @@ export class Pipeline {
       issues: [],
       metadata: {
         timestamp: Date.now(),
-        repository: process.cwd(),
+        repository: projectPath,
         baseRef,
         headRef,
         commitMessages: commitMessages.length > 0 ? commitMessages : undefined,
@@ -138,6 +151,13 @@ export class Pipeline {
       stream,
       concurrency,
       skipValidation,
+      ruleFilter,
+      excludeRules,
+      agentFilter,
+      excludeAgents,
+      config,
+      // Pass agents from constructor (already loaded with correct executor settings)
+      agents: this.agents,
     };
 
     // Execute stages

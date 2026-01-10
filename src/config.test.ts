@@ -1,5 +1,8 @@
-import { test, expect, describe } from 'bun:test';
+import { test, expect, describe } from 'vitest';
 import { ConfigSchema, getDefaultConfig, loadConfig, invalidateConfigCache } from './config';
+import { writeFile, rm, mkdir } from 'node:fs/promises';
+import { join } from 'path';
+import { tmpdir } from 'os';
 
 describe('Config', () => {
   test('should create default config', () => {
@@ -22,8 +25,8 @@ describe('Config', () => {
     ]);
     expect(config.output.colorize).toBe(true);
     expect(config.output.format).toBe('terminal');
-    expect(config.executors).toEqual([]);
-    expect(config.stages).toEqual([]);
+    expect(config.executor).toBe('claude-cli');
+    expect(config.executors).toEqual({});
   });
 
   test('should validate config schema', () => {
@@ -34,12 +37,19 @@ describe('Config', () => {
         verbose: true,
         format: 'json' as const,
       },
-      executors: [],
+      executor: 'cursor-cli',
+      executors: {
+        'cursor-cli': {
+          validation: { model: 'opus' },
+        },
+      },
     };
 
     const result = ConfigSchema.parse(validConfig);
     expect(result.excludePatterns).toEqual(['*.test.ts', '*.spec.ts']);
     expect(result.output.format).toBe('json');
+    expect(result.executor).toBe('cursor-cli');
+    expect(result.executors['cursor-cli']?.validation?.model).toBe('opus');
   });
 
   test('should use defaults for missing values', () => {
@@ -81,5 +91,20 @@ describe('Config', () => {
     expect(config1).toEqual(config2);
     // After invalidation and reload, it's a new object reference
     // (though values are the same)
+  });
+
+  test('should throw error for invalid JSON in config file', async () => {
+    const testDir = join(tmpdir(), `diffray-test-${Date.now()}`);
+    await mkdir(testDir, { recursive: true });
+
+    try {
+      // Create invalid JSON config
+      await writeFile(join(testDir, '.diffray.json'), '{ "executor": "opus"');
+      invalidateConfigCache();
+
+      await expect(loadConfig(testDir)).rejects.toThrow(/Invalid JSON in config file/);
+    } finally {
+      await rm(testDir, { recursive: true, force: true });
+    }
   });
 });

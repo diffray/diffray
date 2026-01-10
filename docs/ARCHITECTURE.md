@@ -84,17 +84,77 @@ Executes Agents via LLM API calls.
 ```typescript
 {
   type: "llm-api",
-  provider: "anthropic",
-  model: "claude-3-5-sonnet-20241022",
-  apiKey: "sk-...",
+  provider: "cerebras",
+  model: "llama-4-scout-17b-16e-instruct",
+  apiKey: process.env.CEREBRAS_API_KEY,
   temperature: 0.7,
   maxTokens: 4096
 }
 ```
 
 **Supported providers:**
-- `cerebras` - Cerebras API (default)
-- `custom` - Custom API endpoint
+- `cerebras` - Cerebras API (requires `CEREBRAS_API_KEY` env var)
+
+## Executor Configuration
+
+Executor settings are stored in `~/.diffray/config.json` grouped by executor name:
+
+```json
+{
+  "executor": "claude-cli",
+  "executors": {
+    "claude-cli": {
+      "review": { "model": "sonnet", "timeout": 120 },
+      "validation": { "model": "opus", "timeout": 180 }
+    },
+    "cursor-agent-cli": {
+      "review": { "model": "claude-3-5-sonnet" },
+      "validation": { "model": "claude-3-opus" }
+    }
+  }
+}
+```
+
+**Key concepts:**
+- `executor` - currently active executor
+- `executors.<name>` - settings for specific executor
+- Each executor has per-stage settings (`review`, `validation`)
+- Settings preserved per-executor when switching
+
+**CLI commands:**
+```bash
+# Switch executor
+diffray config set executor cursor-agent-cli
+
+# Configure current executor (shortcut)
+diffray config set validation.model opus
+# → writes to executors.<current>.validation.model
+
+# Configure specific executor (full path)
+diffray config set executors.claude-cli.validation.timeout 180
+
+# View current executor settings
+diffray executors
+```
+
+**How settings are applied:**
+```typescript
+// src/agents.ts
+const config = await loadConfig();
+const currentExecutor = config.executor;
+const executorConfig = config.executors[currentExecutor] || {};
+
+return agents.map((agent) => {
+  const stage = agent.stage || 'review';
+  const stageSettings = executorConfig[stage] || {};
+
+  return {
+    ...agent,
+    executor: agent.executor || currentExecutor,
+    executorSettings: { ...stageSettings, ...agent.executorSettings },
+  };
+});
+```
 
 ## Global Singletons
 
@@ -164,7 +224,7 @@ src/stages/
 ├── index.ts              # Stage registry & ordering
 ├── load-rules.ts         # Stage 1: Load rules from config
 ├── match-rules.ts        # Stage 2: Match files to rules
-├── execute-agents.ts     # Stage 3: Run agents (main logic)
+├── review.ts             # Stage 3: Run agents (main logic)
 ├── aggregate-results.ts  # Stage 4: Combine results
 ├── deduplication.ts      # Stage 5: Remove duplicates
 └── validation.ts         # Stage 6: Validate output
@@ -199,14 +259,14 @@ interface Stage {
 
 **Configuration (order matters):**
 ```typescript
-// stages order defined in BUILTIN_STAGES array
-const BUILTIN_STAGES = [
-  createLoadRulesStage,      // must be first
-  createMatchRulesStage,     // needs rules
-  createExecuteAgentsStage,  // needs matched rules
-  createAggregateResultsStage,
-  createDeduplicationStage,
-  createValidationStage,     // must be last
+// stages order defined in getStages() function
+const stages = [
+  createLoadRulesStage(),      // must be first
+  createMatchRulesStage(),     // needs rules
+  createReviewStage(),         // needs matched rules
+  createAggregateResultsStage(),
+  createDeduplicationStage(),
+  createValidationStage(),     // must be last
 ];
 
 // User can enable/disable via config.stages
@@ -240,16 +300,13 @@ The CLI uses a **command registry pattern** to avoid monolithic switch statement
 
 ```
 src/
-├── cli.ts                        # Main entry point (~200 lines)
+├── cli.ts                        # Main entry point with review command
 └── cli/
-    ├── command-registry.ts       # Command dispatcher (143 lines)
     └── commands/
-        ├── index.ts              # Export all commands
-        ├── agents-command.ts     # Agents subcommands (~36 lines)
-        ├── config-command.ts     # Config subcommands (~58 lines)
-        ├── executors-command.ts  # Executors subcommands (~60 lines)
-        ├── rules-command.ts      # Rules subcommands (~55 lines)
-        └── cache-command.ts      # Cache subcommands (~30 lines)
+        ├── agents.ts             # Agents subcommands
+        ├── config.ts             # Config subcommands
+        ├── executors.ts          # Executors subcommands
+        └── rules.ts              # Rules subcommands
 ```
 
 **Design Benefits:**
@@ -280,10 +337,11 @@ registry.register(myCommand);
 await registry.dispatch(commandName, subcommand, args);
 ```
 
-**Before vs After:**
-- Before: 493 lines, 4 nested switch statements
-- After: ~200 lines main + ~40 lines per command module
-- Result: Better maintainability, easier to extend
+**Benefits:**
+- Main CLI file handles the `review` command directly
+- Subcommands (`agents`, `config`, `executors`, `rules`) are modular
+- Each command module is small and focused
+- Easy to add new commands without modifying main CLI
 
 ## Markdown Loader Architecture
 
@@ -313,111 +371,96 @@ src/
 
 ## Caching Strategy
 
-Agents and rules are cached in `~/.diffray/config.json` for performance.
-
-### Why Cache?
-
-With recursive loading from 3 priority sources:
-
-```
-~/.diffray/agents/           # user agents
-~/.diffray/rules/            # user rules
-  ├── security/
-  │   ├── xss.md
-  │   └── sql-injection.md
-  └── typescript/
-      └── best-practices.md
-
-.diffray/agents/             # project agents
-.diffray/rules/              # project rules
-  └── team-standards/
-      └── *.md
-
-src/defaults/agents/         # built-in agents
-src/defaults/rules/          # built-in rules
-```
-
-Cold start without cache:
-- ~50 files × 3 sources = 150 file reads
-- Each file parsed for frontmatter
-- **~100-300ms** on first run
-
-With cache:
-- 1 file read (`config.json`)
-- **~5ms**
+The project uses **in-memory caching** for performance during a single run.
 
 ### How It Works
 
 ```typescript
-// agents.ts
-export async function loadAgents(): Promise<Agent[]> {
-  const config = await loadConfig();
+// src/cache.ts - Unified cache utility
+const cache = new Map<string, CacheEntry<unknown>>();
 
-  // Cache hit: return immediately
-  if (config.agents && config.agents.length > 0) {
-    return config.agents;  // ~5ms
+export async function getCached<T>(key: string, loader: () => Promise<T>): Promise<T> {
+  const entry = cache.get(key);
+  if (entry !== undefined) {
+    return entry.value as T;
   }
 
-  // Cache miss: load from MD files and save to cache
-  await syncAgentsToConfig();  // ~100-300ms, writes to config.json
-  return getAgents(await loadConfig());
+  const value = await loader();
+  cache.set(key, { value, timestamp: Date.now() });
+  return value;
 }
 ```
 
-### Cache Invalidation
+### What Gets Cached
 
-Cache is **not** automatically invalidated when MD files change. This is intentional:
-- Avoids file watching overhead
-- Predictable behavior
-- Explicit control
+| Key | Description |
+|-----|-------------|
+| `config` | Merged configuration from all sources |
+| `instructions` | Global instructions from `~/.diffray/instructions.md` |
+| `prompt:output-format` | Output format prompt template |
+| `prompt:validation` | Validation prompt template |
 
-**To refresh cache:**
-```bash
-diffray cache sync    # Reload agents and rules from MD files
-diffray cache clear   # Clear all cached data
+### Cache Lifecycle
+
+- **Single run**: Cache is populated on first access, reused throughout the run
+- **Fresh on each run**: Each CLI invocation starts with empty cache
+- **No persistence**: Cache is in-memory only, not persisted to disk
+
+### Loading Strategy
+
+Agents and rules are loaded fresh from MD files on each run:
+
+```
+Priority order (highest to lowest):
+1. .diffray/agents/ or .diffray/rules/ (project folder)
+2. ~/.diffray/agents/ or ~/.diffray/rules/ (home folder)
+3. src/defaults/agents/ or src/defaults/rules/ (built-in)
 ```
 
-### When Cache Updates
-
-| Action | Cache Updated? |
-|--------|----------------|
-| First run | Yes (auto-populate) |
-| `diffray cache sync` | Yes |
-| `diffray cache clear` | Cleared |
-| Edit MD files | No (manual sync needed) |
-| Add new MD files | No (manual sync needed) |
-
-### Trade-offs
-
-| Approach | Pros | Cons |
-|----------|------|------|
-| **Disk cache (current)** | Fast startup, survives restarts | Manual sync needed |
-| Memory-only cache | Always fresh | Slow cold start every time |
-| File watching | Auto-refresh | Complexity, resource usage |
-
-The disk cache approach prioritizes **startup speed** over automatic freshness.
+This ensures changes to MD files are immediately reflected without manual cache clearing.
 
 ## File Structure
 
 ```
 src/
+├── cli.ts                # Main CLI entry point
+├── pipeline.ts           # Pipeline orchestration
+├── types.ts              # Type definitions
+├── config.ts             # Config schema and loading
+├── cache.ts              # In-memory cache utility
 ├── md-loader.ts          # Generic markdown loader
 ├── executors.ts          # Executor definitions and registry
+├── agents.ts             # Agent loading and configuration
 ├── agents/
 │   ├── registry.ts       # Agent registry
-│   └── index.ts          # Agent loader
+│   ├── defaults.ts       # Default agents loader
+│   └── md-loader.ts      # Agent-specific markdown loader
 ├── rules.ts              # Rules loader
 ├── stages/               # Pipeline stages
 │   ├── index.ts
 │   ├── load-rules.ts
 │   ├── match-rules.ts
-│   ├── execute-agents.ts
+│   ├── review.ts
 │   ├── aggregate-results.ts
 │   ├── deduplication.ts
 │   └── validation.ts
-├── defaults/
-│   ├── agents/*.md       # Agent definitions
-│   ├── rules/*.md        # Rule definitions
-│   └── prompts/*.md      # Prompt templates
-└── types.ts              # Type definitions
+├── executors/            # Executor implementations
+│   ├── index.ts
+│   ├── types.ts
+│   ├── api.ts            # Cerebras API executor
+│   ├── cli.ts            # CLI executor base
+│   ├── claude-cli.ts     # Claude Code CLI executor
+│   ├── cursor-agent-cli.ts # Cursor Agent CLI executor
+│   ├── process.ts        # Process utilities
+│   └── utils.ts          # Shared utilities
+├── cli/
+│   └── commands/         # CLI subcommands
+│       ├── agents.ts
+│       ├── config.ts
+│       ├── executors.ts
+│       └── rules.ts
+└── defaults/
+    ├── agents/*.md       # Agent definitions
+    ├── rules/*.md        # Rule definitions
+    └── prompts/*.md      # Prompt templates
 ```

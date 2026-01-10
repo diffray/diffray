@@ -31,7 +31,8 @@ export function buildAgent(frontmatter: Frontmatter, body: string): Agent | null
     systemPrompt,
     enabled: typeof frontmatter.enabled === 'boolean' ? frontmatter.enabled : true,
     order: typeof frontmatter.order === 'number' ? frontmatter.order : 0,
-    executor: typeof frontmatter.executor === 'string' ? frontmatter.executor : 'test-cli',
+    // executor is optional - if not set, defaultExecutor from config will be used
+    ...(typeof frontmatter.executor === 'string' && { executor: frontmatter.executor }),
     stage,
     ...(executorSettings && { executorSettings }),
   };

@@ -10,6 +10,7 @@ import { log } from '../logger';
 import { loadOutputFormat, buildPrompt, buildUserPrompt, createResult } from './utils';
 import { trackProcess, ensureSigintHandler } from './process';
 import { streamClaudeCli } from './claude-cli';
+import { streamCursorAgentCli } from './cursor-agent-cli';
 
 // Settings schema for CLI executors
 export const CLISettingsSchema = z.object({
@@ -18,7 +19,12 @@ export const CLISettingsSchema = z.object({
 });
 
 const CLAUDE_CLI_DEFAULTS = {
-  model: 'sonnet',
+  model: 'opus',
+  timeout: 120,
+} as const;
+
+const CURSOR_AGENT_DEFAULTS = {
+  model: 'opus-4.5',
   timeout: 120,
 } as const;
 
@@ -94,6 +100,46 @@ async function executeClaudeCli(
   });
 
   return createResult(ctx, true, output, undefined, Date.now() - start, userPrompt);
+}
+
+/**
+ * Execute Cursor Agent CLI with streaming
+ * Note: Cursor Agent CLI doesn't have --system-prompt, so we prepend it to user prompt
+ */
+async function executeCursorAgentCli(
+  config: CLIConfig,
+  ctx: ExecutionContext,
+  format: string
+): Promise<ExecutionResult> {
+  const start = Date.now();
+  // Cursor Agent doesn't have --system-prompt, so combine system + format + user prompt
+  const systemPrompt = `${ctx.systemPrompt}\n\n${format}`;
+  const fullPrompt = `<system>\n${systemPrompt}\n</system>\n\n${ctx.input}`;
+
+  const effectiveModel = getEffectiveModel(ctx, config.model);
+  const effectiveTimeout = getEffectiveTimeout(ctx, config.timeout);
+
+  const cmdArgs: string[] = [config.command];
+
+  // Add print mode for non-interactive use
+  cmdArgs.push('-p', '--output-format', 'stream-json');
+
+  // Add model if specified
+  if (effectiveModel) {
+    cmdArgs.push('--model', effectiveModel);
+  }
+
+  // Add combined prompt as positional argument
+  cmdArgs.push(fullPrompt);
+
+  const output = await streamCursorAgentCli(cmdArgs, config.env || {}, effectiveTimeout, {
+    stream: ctx.stream ?? false,
+    verbose: ctx.verbose ?? false,
+    agentName: ctx.agent.name,
+    cwd: ctx.cwd,
+  });
+
+  return createResult(ctx, true, output, undefined, Date.now() - start, ctx.input);
 }
 
 /**
@@ -232,6 +278,10 @@ export function createCLIExecutor(config: CLIConfig): Executor {
           return await executeClaudeCli(config, ctx, format);
         }
 
+        if (config.name === 'cursor-agent-cli') {
+          return await executeCursorAgentCli(config, ctx, format);
+        }
+
         return await executeGenericCli(config, ctx, format);
       } catch (e) {
         return createResult(
@@ -252,6 +302,7 @@ export function createCLIExecutor(config: CLIConfig): Executor {
       env: config.env,
       timeout: config.timeout,
       model: config.model,
+      installCommand: config.installCommand,
       enabled: true,
     }),
 
@@ -270,6 +321,7 @@ export function createCLIExecutor(config: CLIConfig): Executor {
         env: config.env,
         timeout: validSettings.timeout ?? config.timeout,
         model: validSettings.model ?? config.model,
+        installCommand: config.installCommand,
         enabled: true,
       };
     },
@@ -287,6 +339,7 @@ export const claudeCliExecutor = createCLIExecutor({
   model: CLAUDE_CLI_DEFAULTS.model,
   useStdin: false,
   systemPromptArg: '--system-prompt',
+  installCommand: 'npm install -g @anthropic-ai/claude-code',
 });
 
 export const testCliExecutor = createCLIExecutor({
@@ -296,4 +349,15 @@ export const testCliExecutor = createCLIExecutor({
   args: ['-c', "cat > /dev/null; sleep 1; echo '[]'"],
   timeout: 10,
   useStdin: true,
+});
+
+export const cursorAgentCliExecutor = createCLIExecutor({
+  name: 'cursor-agent-cli',
+  description: 'Execute via Cursor Agent CLI',
+  command: 'cursor-agent',
+  args: [],
+  timeout: CURSOR_AGENT_DEFAULTS.timeout,
+  model: CURSOR_AGENT_DEFAULTS.model,
+  useStdin: false,
+  installCommand: 'curl https://cursor.com/install -fsS | bash',
 });

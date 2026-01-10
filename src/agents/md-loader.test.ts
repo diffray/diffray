@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { parseAgentMarkdown, loadAgentsFromDirectory } from './md-loader';
 
 describe('md-loader', () => {
@@ -40,12 +40,13 @@ Minimal prompt.`;
       if (!agent) throw new Error('Expected agent to be defined');
       expect(agent.name).toBe('minimal-agent');
       expect(agent.enabled).toBe(true);
-      expect(agent.executor).toBe('test-cli');
+      // executor is undefined when not specified - defaultExecutor from config is applied later in loadAgents
+      expect(agent.executor).toBeUndefined();
       expect(agent.description).toBe('');
       expect(agent.systemPrompt).toBe('Minimal prompt.');
     });
 
-    it('should handle missing executor field with default', () => {
+    it('should handle missing executor field (undefined, resolved later by config)', () => {
       const markdown = `---
 name: no-executor
 description: No executor specified.
@@ -62,7 +63,8 @@ Test prompt.`;
       if (!agent) throw new Error('Expected agent to be defined');
       expect(agent.name).toBe('no-executor');
       expect(agent.enabled).toBe(false);
-      expect(agent.executor).toBe('test-cli');
+      // executor is undefined when not specified - defaultExecutor from config is applied later in loadAgents
+      expect(agent.executor).toBeUndefined();
       expect(agent.description).toBe('No executor specified.');
       expect(agent.systemPrompt).toBe('Test prompt.');
     });
@@ -171,18 +173,21 @@ description: This description has extra whitespace.
       for (const agent of agents) {
         expect(agent).toHaveProperty('name');
         expect(agent).toHaveProperty('enabled');
-        expect(agent).toHaveProperty('executor');
+        // executor is optional - not all agents define it
         expect(agent).toHaveProperty('description');
         expect(agent).toHaveProperty('systemPrompt');
 
         expect(typeof agent.name).toBe('string');
         expect(typeof agent.enabled).toBe('boolean');
-        expect(typeof agent.executor).toBe('string');
+        // executor is optional - if set, must be string
+        if (agent.executor !== undefined) {
+          expect(typeof agent.executor).toBe('string');
+          expect(agent.executor.length).toBeGreaterThan(0);
+        }
         expect(typeof agent.description).toBe('string');
         expect(typeof agent.systemPrompt).toBe('string');
 
         expect(agent.name.length).toBeGreaterThan(0);
-        expect(agent.executor.length).toBeGreaterThan(0);
       }
     });
 

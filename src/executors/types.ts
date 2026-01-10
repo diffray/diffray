@@ -40,6 +40,8 @@ export interface CLIConfig {
   useStdin?: boolean;
   model?: string;
   systemPromptArg?: string;
+  /** Installation command hint (e.g., "npm install -g @anthropic-ai/claude-code") */
+  installCommand?: string;
 }
 
 export interface StreamOptions {
