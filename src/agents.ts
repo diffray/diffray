@@ -1,6 +1,6 @@
 import type { Agent } from './types';
 import { loadAgentsFromDirectory } from './agents/md-loader.js';
-import { loadWithPriority } from './md-loader.js';
+import { loadWithPriority, loadWithPriorityAndExtends } from './md-loader.js';
 import { loadConfig } from './config.js';
 
 /**
@@ -27,14 +27,20 @@ export async function loadAgents(options?: LoadAgentsOptions | string): Promise<
     typeof options === 'string' ? { projectPath: options } : options || {};
 
   const resolvedProjectPath = opts.projectPath || process.cwd();
-  const agents = await loadWithPriority<Agent>(
-    'agents',
-    loadAgentsFromDirectory,
-    resolvedProjectPath
-  );
 
-  // Apply executor and settings from config.executors (with project overrides)
+  // Load config first to check for extends
   const config = await loadConfig(resolvedProjectPath);
+
+  // Use extends-aware loader if extends are configured
+  const agents =
+    config.extends.length > 0
+      ? await loadWithPriorityAndExtends<Agent>(
+          'agents',
+          loadAgentsFromDirectory,
+          resolvedProjectPath,
+          config.extends
+        )
+      : await loadWithPriority<Agent>('agents', loadAgentsFromDirectory, resolvedProjectPath);
   // Use executor override if provided, otherwise use config.executor
   const currentExecutor = opts.executorOverride || config.executor;
   const executorConfig = config.executors[currentExecutor] || {};

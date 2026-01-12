@@ -1,4 +1,5 @@
 {
+  "extends": ["https://github.com/diffray/diffray-rules"],
   "agents": {},
   "rules": {},
   "executors": {

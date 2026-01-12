@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-01-12
+
+### Added
+
+- **Extends system** - Load agents and rules from any git repository
+  - Configure in `.diffray.json`: `"extends": ["https://github.com/owner/repo#v1.0"]`
+  - Supports HTTPS and SSH URLs with optional ref (branch/tag)
+  - Commands: `diffray extends install`, `diffray extends list`, `diffray extends remove`
+  - Lockfile tracking at `~/.diffray/extends.lock.json`
+
+- **`--branch` CLI option** - Review branches against auto-detected base
+  - `diffray review --branch .` - Current branch vs main (auto-detect)
+  - `diffray review --branch feature-auth` - Specific branch vs main
+  - `diffray review --branch . --base develop` - Override base branch
+  - Auto-detects default branch from remote origin or falls back to main/master/develop
+
+### Changed
+
+- Parallel processing for extends installation (4 concurrent clones)
+
+### Security
+
+- Path traversal protection in `removeExtend()` - validates paths before deletion
+
 ## [0.2.0] - 2025-01-10
 
 ### Added
@@ -72,7 +96,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Major codebase cleanup and modernization
 
-[Unreleased]: https://github.com/diffray/diffray/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/diffray/diffray/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/diffray/diffray/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/diffray/diffray/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/diffray/diffray/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/diffray/diffray/compare/v0.1.1...v0.1.2

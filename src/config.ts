@@ -32,6 +32,7 @@ const RuleOverrideSchema = z.object({
 });
 
 export const ConfigSchema = z.object({
+  extends: z.array(z.string()).default([]),
   excludePatterns: z
     .array(z.string())
     .default([
@@ -111,6 +112,7 @@ async function loadConfigFile(filePath: string): Promise<Partial<Config> | null>
 function mergeConfigs(global: Config, project: Partial<Config>): Config {
   return {
     ...global,
+    ...(project.extends !== undefined && { extends: project.extends }),
     ...(project.excludePatterns !== undefined && { excludePatterns: project.excludePatterns }),
     ...(project.concurrency !== undefined && { concurrency: project.concurrency }),
     ...(project.executor !== undefined && { executor: project.executor }),

@@ -12,12 +12,14 @@ function sourceBadge(source: string): string {
   switch (source) {
     case 'defaults':
       return '◆'; // built-in
+    case 'extends':
+      return '○'; // from extends
     case 'user':
       return '◇'; // user override
     case 'project':
       return '●'; // project specific
     default:
-      return '○';
+      return '?';
   }
 }
 
@@ -46,7 +48,7 @@ export async function listRules(): Promise<void> {
     log.newline();
   }
 
-  log.plain('◆ defaults  ◇ user  ● project');
+  log.plain('◆ defaults  ○ extends  ◇ user  ● project');
 }
 
 /**

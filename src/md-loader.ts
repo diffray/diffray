@@ -301,5 +301,61 @@ export async function loadRuleRefsWithPriority(projectPath: string): Promise<Rul
   return Array.from(merged.values());
 }
 
+/**
+ * Load items from 4 priority levels including extends and merge by name
+ * Priority: defaults < extends (in order) < user < project
+ */
+export async function loadWithPriorityAndExtends<T extends { name: string }>(
+  subdir: string,
+  loader: (dirPath: string) => Promise<T[]>,
+  projectPath: string,
+  extendRefs: string[]
+): Promise<T[]> {
+  const paths = getPriorityPaths(subdir, projectPath);
+
+  // Import extends loader dynamically to avoid circular dependency
+  const { loadFromExtends } = await import('./extends/loader');
+
+  // Load from all sources in parallel
+  const [defaults, extendResults, user, project] = await Promise.all([
+    loader(paths.defaults),
+    loadFromExtends(subdir, loader, extendRefs),
+    loader(paths.user),
+    loader(paths.project),
+  ]);
+
+  // Priority: defaults < extends (in order) < user < project
+  return mergeByName(defaults, ...extendResults, user, project);
+}
+
+/**
+ * Load rule refs from all priority levels including extends
+ * Priority: defaults < extends (in order) < user < project
+ */
+export async function loadRuleRefsWithPriorityAndExtends(
+  projectPath: string,
+  extendRefs: string[]
+): Promise<RuleRefData[]> {
+  const paths = getPriorityPaths('rules', projectPath);
+
+  // Import extends loader dynamically to avoid circular dependency
+  const { scanRuleRefsFromExtends } = await import('./extends/loader');
+
+  const [defaults, extends_, user, project] = await Promise.all([
+    scanRuleRefs(paths.defaults, 'defaults'),
+    scanRuleRefsFromExtends(extendRefs),
+    scanRuleRefs(paths.user, 'user'),
+    scanRuleRefs(paths.project, 'project'),
+  ]);
+
+  // Merge by name - later sources override earlier
+  const merged = new Map<string, RuleRefData>();
+  for (const ref of [...defaults, ...extends_, ...user, ...project]) {
+    merged.set(ref.name, ref);
+  }
+
+  return Array.from(merged.values());
+}
+
 export { parseFrontmatter };
 export type { ParsedMarkdown };

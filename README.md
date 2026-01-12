@@ -16,45 +16,19 @@
   <img src="/docs/diffray.png" alt="diffray in action" width="800">
 </p>
 
-## What is diffray?
-
-diffray automatically reviews your code changes and finds bugs, security issues, and performance problems **before** you commit or create a PR.
-
-Think of it as having a senior developer review your code 24/7.
-
-```
-You write code → diffray analyzes it → You get a list of issues to fix
-```
-
-### What it finds:
-
-- **Bugs** - logic errors, null pointer exceptions, race conditions
-- **Security issues** - SQL injection, XSS, exposed secrets
-- **Performance problems** - memory leaks, slow queries, unnecessary re-renders
-
-
 ---
 
 ## Table of Contents
 
-**Getting Started**
 - [Quick Start](#quick-start)
-- [Quick Reference](#quick-reference)
 - [Prerequisites](#prerequisites)
-- [Common Commands](#common-commands)
 - [How It Works](#how-it-works)
-
-**Customization**
 - [Configuration](#configuration-optional)
 - [Creating Custom Agents](#creating-custom-agents)
 - [Creating Custom Rules](#creating-custom-rules)
 - [Overriding Agents and Rules](#overriding-agents-and-rules)
-
-**Reference**
 - [FAQ](#faq)
 - [Development](#development)
-- [Contributing](CONTRIBUTING.md)
-- [Changelog](CHANGELOG.md)
 
 ---
 
@@ -82,17 +56,34 @@ diffray --base main
 
 That's it! diffray will analyze your changes and show any issues found.
 
-### Quick Reference
+### Common Commands
 
-| Command | What it does |
-|---------|--------------|
-| `diffray` | Review uncommitted changes (or last commit if clean) |
-| `diffray --base main` | Review changes vs main branch |
-| `diffray --severity critical,high` | Show only critical/high issues |
-| `diffray --agent bug-hunter` | Run only specific agent |
-| `diffray --json` | Output as JSON (for CI/CD) |
-| `diffray agents` | List available agents |
-| `diffray rules` | List available rules |
+```bash
+# Review uncommitted changes, or last commit if clean
+diffray
+
+# Review changes compared to main branch
+diffray --base main
+
+# Review last 3 commits
+diffray --base HEAD~3
+
+# Show only critical and high severity issues
+diffray --severity critical,high
+
+# Run only specific agent
+diffray --agent bug-hunter
+
+# Output as JSON (for CI/CD pipelines)
+diffray --json
+
+# Show detailed progress
+diffray --stream
+
+# List available agents and rules
+diffray agents
+diffray rules
+```
 
 ## Prerequisites
 
@@ -141,28 +132,6 @@ Costs depend on your AI provider's pricing. Claude Code uses your Anthropic acco
 - Use `--agent` flag to run only specific agents
 - Use `--skip-validation` to skip the validation stage (faster but more false positives)
 
-## Common Commands
-
-```bash
-# Review uncommitted changes, or last commit if clean (most common)
-diffray
-
-# Review changes compared to main branch
-diffray --base main
-
-# Review last 3 commits
-diffray --base HEAD~3
-
-# Show only critical and high severity issues
-diffray --severity critical,high
-
-# Output as JSON (for CI/CD pipelines)
-diffray --json
-
-# Show detailed progress
-diffray --stream
-```
-
 ## How It Works
 
 ### Pipeline
@@ -207,35 +176,9 @@ Only verified issues are shown in the final report.
 
 ## Configuration (Optional)
 
-diffray works out of the box with sensible defaults. But you can customize it:
+diffray works out of the box with sensible defaults. Create `.diffray.json` in your project to customize:
 
-### Disable an agent
-
-Create `.diffray.json` in your project:
-
-```json
-{
-  "agents": {
-    "performance-check": { "enabled": false }
-  }
-}
-```
-
-### Exclude files from review
-
-```json
-{
-  "excludePatterns": [
-    "*.test.ts",
-    "*.spec.ts",
-    "generated/**"
-  ]
-}
-```
-
-### Typical project configuration
-
-Here's a practical `.diffray.json` for a TypeScript/React project:
+### Example configuration
 
 ```json
 {
@@ -243,86 +186,56 @@ Here's a practical `.diffray.json` for a TypeScript/React project:
     "**/*.test.ts",
     "**/*.spec.ts",
     "**/__tests__/**",
-    "dist/**",
-    "node_modules/**"
+    "dist/**"
   ],
-  "agents": {
-    "performance-check": { "enabled": false }
-  }
-}
-```
-
-### Full configuration reference
-
-All available options (you don't need all of these):
-
-```json
-{
-  "excludePatterns": ["*.test.ts", "generated/**"],
-  "concurrency": 4,
+  "concurrency": 6,
   "executor": "claude-cli",
-  "executors": {
-    "claude-cli": {
-      "review": { "model": "sonnet", "timeout": 120, "concurrency": 6 },
-      "validation": { "model": "opus", "timeout": 180, "batchSize": 10 }
-    }
-  },
   "agents": {
-    "security-scan": { "enabled": false },
+    "performance-check": { "enabled": false },
     "bug-hunter": { "model": "haiku", "timeout": 60 }
   },
   "rules": {
     "code-security": { "enabled": false }
   },
-  "output": {
-    "colorize": true,
-    "verbose": false,
-    "format": "terminal"
-  }
-}
-```
-
-| Option | Description |
-|--------|-------------|
-| `excludePatterns` | Glob patterns for files to skip |
-| `concurrency` | Global max parallel agents (1-10, default: **6**) |
-| `executor` | Which executor to use (`claude-cli`, `cursor-agent-cli`) |
-| `executors.<name>.<stage>` | Per-executor, per-stage settings |
-| `agents.<name>` | Override agent settings (`enabled`, `model`, `timeout`) |
-| `rules.<name>` | Override rule settings (`enabled`, `agent`) |
-
-### Concurrency settings
-
-Concurrency controls how many agents run in parallel. Higher values = faster reviews but more API load.
-
-**Default:** 6 parallel agents
-
-**Two levels of configuration:**
-
-```json
-{
-  "concurrency": 6,
   "executors": {
     "claude-cli": {
-      "review": { "concurrency": 6 },
-      "validation": { "concurrency": 3 }
+      "review": { "model": "sonnet", "timeout": 120, "concurrency": 6 },
+      "validation": { "model": "opus", "timeout": 180, "batchSize": 10 }
     }
   }
 }
 ```
 
-| Setting | What it controls |
-|---------|------------------|
-| `concurrency` | Global default for all stages |
-| `executors.<name>.review.concurrency` | Parallel agents during review stage |
-| `executors.<name>.validation.concurrency` | Parallel validations |
+### Options reference
 
-**Priority:** stage-specific > global
+| Option | Description |
+|--------|-------------|
+| `extends` | Load agents/rules from git repos (e.g., `["https://github.com/owner/repo#v1.0"]`) |
+| `excludePatterns` | Glob patterns for files to skip |
+| `concurrency` | Max parallel agents (1-10, default: **6**). Stage-specific settings override this. |
+| `executor` | Which executor to use (`claude-cli`, `cursor-agent-cli`) |
+| `agents.<name>` | Override agent settings (`enabled`, `model`, `timeout`) |
+| `rules.<name>` | Override rule settings (`enabled`, `agent`) |
+| `executors.<name>.<stage>` | Per-executor, per-stage settings (`model`, `timeout`, `concurrency`, `batchSize`) |
 
-**Recommendations:**
-- **Fast machine + good internet:** `6` (default)
-- **Rate limited API:** `2-3`
-- **Debugging:** `1` (sequential, easier to read logs)
+### Extends
+
+Share agents and rules across projects by loading them from any git repository:
+
+```json
+{
+  "extends": [
+    "https://github.com/diffray/diffray-rules"
+  ]
+}
+```
+
+Supports any git URL:
+- `https://github.com/owner/repo` — HTTPS, default branch
+- `https://github.com/owner/repo#v1.0` — specific tag/branch
+- `git@github.com:owner/repo.git` — SSH format
+
+Then run `diffray extends install` to download. Agents/rules from extends have lower priority than local ones.
 
 ### Config commands
 
@@ -775,61 +688,20 @@ diffray rules code-bugs --test src/
 
 ## Overriding Agents and Rules
 
-You can override built-in agents and rules without editing their original files. This is useful when you want to:
-
-- Disable a built-in agent or rule
-- Change settings for a specific project
-- Override agent's model or timeout
-
-### Override via config file
-
-Create `.diffray.json` in your project root:
-
-```json
-{
-  "agents": {
-    "performance-check": { "enabled": false },
-    "bug-hunter": { "model": "opus", "timeout": 180 }
-  },
-  "rules": {
-    "code-security": { "enabled": false },
-    "code-bugs": { "agent": "my-custom-agent" }
-  }
-}
-```
-
-### Agent overrides
-
-| Field | What it does | Example |
-|-------|--------------|---------|
-| `enabled` | Turn agent on/off | `{ "enabled": false }` |
-| `model` | Use different AI model | `{ "model": "opus" }` |
-| `timeout` | Increase timeout (seconds) | `{ "timeout": 300 }` |
-
-### Rule overrides
-
-| Field | What it does | Example |
-|-------|--------------|---------|
-| `enabled` | Turn rule on/off | `{ "enabled": false }` |
-| `agent` | Use different agent | `{ "agent": "my-agent" }` |
-
-### Override by creating your own file
-
-If a file with the same `name` exists in a higher-priority folder, it overrides the lower one.
+Besides config file overrides (see [Configuration](#configuration-optional)), you can completely replace built-in agents/rules by creating files with the same name.
 
 **Priority order (highest to lowest):**
 1. `.diffray/agents/` or `.diffray/rules/` (project folder)
 2. `~/.diffray/agents/` or `~/.diffray/rules/` (home folder)
 3. Built-in defaults
 
-**Example:** To override the built-in `bug-hunter` agent, create:
+**Example:** To replace the built-in `bug-hunter` agent:
 
 ```bash
-# Create project-specific override
 mkdir -p .diffray/agents
 ```
 
-Then create `.diffray/agents/bug-hunter.md`:
+Create `.diffray/agents/bug-hunter.md`:
 
 ```markdown
 ---
@@ -839,62 +711,6 @@ enabled: true
 ---
 
 Your completely custom instructions here...
-```
-
-Now your version will be used instead of the built-in one.
-
-### Common override scenarios
-
-#### Disable security scanning for a project
-
-```json
-{
-  "agents": {
-    "security-scan": { "enabled": false }
-  },
-  "rules": {
-    "code-security": { "enabled": false },
-    "config-security": { "enabled": false }
-  }
-}
-```
-
-#### Use faster model for development
-
-```json
-{
-  "agents": {
-    "bug-hunter": { "model": "haiku" },
-    "security-scan": { "model": "haiku" }
-  }
-}
-```
-
-#### Only run bug checking (disable everything else)
-
-```json
-{
-  "agents": {
-    "security-scan": { "enabled": false },
-    "performance-check": { "enabled": false }
-  },
-  "rules": {
-    "code-security": { "enabled": false },
-    "code-performance": { "enabled": false },
-    "config-security": { "enabled": false }
-  }
-}
-```
-
-#### Increase timeout for large files
-
-```json
-{
-  "agents": {
-    "bug-hunter": { "timeout": 300 },
-    "security-scan": { "timeout": 300 }
-  }
-}
 ```
 
 ## FAQ

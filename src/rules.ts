@@ -4,6 +4,7 @@ import {
   loadMarkdownFile,
   loadMarkdownDirectoryRecursive,
   loadRuleRefsWithPriority,
+  loadRuleRefsWithPriorityAndExtends,
   parseFrontmatter,
   type Frontmatter,
 } from './md-loader';
@@ -76,10 +77,15 @@ export function parseSingleRule(content: string): Rule | null {
  */
 export async function loadRuleRefs(projectPath?: string): Promise<RuleRef[]> {
   const resolvedProjectPath = projectPath || process.cwd();
-  const refs = await loadRuleRefsWithPriority(resolvedProjectPath);
 
-  // Apply config.rules overrides (with project config)
+  // Load config first to check for extends
   const config = await loadConfig(resolvedProjectPath);
+
+  // Use extends-aware loader if extends are configured
+  const refs =
+    config.extends.length > 0
+      ? await loadRuleRefsWithPriorityAndExtends(resolvedProjectPath, config.extends)
+      : await loadRuleRefsWithPriority(resolvedProjectPath);
 
   return refs
     .map((ref) => {
