@@ -1,5 +1,5 @@
 /**
- * Stage: Confidence Filter
+ * Stage 3.5: Confidence Filter
  * Filters out issues below the minimum confidence threshold
  */
 
@@ -23,6 +23,7 @@ export function createConfidenceFilterStage(): Stage {
       // Count issues before filtering
       let totalBefore = 0;
       let filteredOut = 0;
+      let withoutConfidence = 0;
 
       // Filter issues in each result
       for (const result of context.results) {
@@ -33,6 +34,7 @@ export function createConfidenceFilterStage(): Stage {
           // Keep issues without confidence (for backward compatibility)
           // or issues with confidence >= threshold
           if (issue.confidence === undefined) {
+            withoutConfidence++;
             return true;
           }
           return issue.confidence >= minConfidence;
@@ -43,13 +45,21 @@ export function createConfidenceFilterStage(): Stage {
 
       const totalAfter = totalBefore - filteredOut;
 
+      // Synchronize context.issues with filtered results
+      context.issues = context.results.flatMap((r) => r.issues);
+
       if (!context.quiet) {
-        if (filteredOut > 0) {
+        if (totalBefore > 0) {
           log.sync(
             `Confidence filter (>=${minConfidence}%): ${totalAfter} kept, ${filteredOut} filtered out`
           );
-        } else if (totalBefore > 0) {
-          log.sync(`Confidence filter: all ${totalBefore} issues above threshold`);
+        }
+
+        // Warn if issues without confidence bypassed filtering
+        if (withoutConfidence > 0) {
+          log.warn(
+            `${withoutConfidence} issue(s) without confidence field bypassed filtering (backward compatibility)`
+          );
         }
       }
 

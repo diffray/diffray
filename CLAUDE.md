@@ -273,6 +273,50 @@ graph TB
 - Loaded directly from MD files on each run via `src/md-loader.ts`
 - Sources (priority order): project `.diffray/rules/`, user `~/.diffray/rules/`, extends, defaults
 
+**Creating Custom Rules**:
+
+Create rules in `.diffray/rules/` directory. Example:
+
+```markdown
+---
+name: input-validation
+description: Ensure all input validation uses Zod schemas
+patterns:
+  - src/**/*.ts
+  - bin/**/*.ts
+agent: general
+---
+
+# Input Validation with Zod
+
+All input validation must use Zod schemas for type safety.
+
+## Rules
+
+### ❌ Avoid:
+- Manual `parseInt`, `parseFloat`, `isNaN` checks
+- String splitting with manual array validation
+
+### ✅ Use instead:
+- Zod `.coerce.number()` for number parsing
+- Zod `.refine()` for validation with clear errors
+- Centralized schemas in `*-schema.ts` files
+
+## Example
+
+See `src/cli-schema.ts` for reference implementation.
+
+## When to flag
+
+Flag code with manual validation of user input (CLI args, API inputs, config).
+
+## When NOT to flag
+
+Don't flag existing Zod schemas or internal calculations.
+```
+
+Rule badges: `◆` defaults, `◉` extends, `◇` user, `●` project
+
 **Extends** (`src/extends/`):
 - Load agents/rules from any git repository
 - Supports HTTPS (`https://github.com/owner/repo`) and SSH (`git@github.com:owner/repo.git`)
@@ -396,6 +440,7 @@ interface Issue {
   fullDescription: string;
   suggestion?: string;
   agent: string;
+  rule?: string;         // Rule(s) that triggered this issue
   evidence?: string;     // Concrete code proof that demonstrates the issue
   confidence?: number;   // Certainty level 0-100 (filtered by --confidence flag)
 }

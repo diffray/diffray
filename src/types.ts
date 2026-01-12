@@ -39,10 +39,9 @@ export interface Issue {
   fullDescription: string;
   suggestion?: string;
   agent: string;
-  /** Concrete code proof that demonstrates the issue exists */
-  evidence?: string;
-  /** Certainty level 0-100 (only issues with ≥80% should be reported) */
-  confidence?: number;
+  rule?: string; // Rule that triggered this issue
+  evidence?: string; // Concrete code proof that demonstrates the issue
+  confidence?: number; // Certainty level 0-100 (filtered by --confidence flag)
 }
 
 /**

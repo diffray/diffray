@@ -11,6 +11,9 @@ The Issues system provides structured representation of code problems found by a
 - **Descriptions** - short and full descriptions
 - **Suggestion** - how to fix the issue
 - **Agent info** - which agent found it
+- **Rule info** - which rule(s) triggered it
+- **Evidence** - concrete code proof
+- **Confidence** - certainty level 0-100
 
 ## Issue Structure
 
@@ -25,6 +28,9 @@ interface Issue {
   fullDescription: string;   // Detailed explanation
   suggestion?: string;       // How to fix it (optional)
   agent: string;             // Agent name that found the issue
+  rule?: string;             // Rule(s) that triggered this issue (optional)
+  evidence?: string;         // Concrete code proof that demonstrates the issue (optional)
+  confidence?: number;       // Certainty level 0-100 (optional)
 }
 ```
 
@@ -64,7 +70,11 @@ Agents can return issues in two formats:
     "category": "bug",
     "shortDescription": "Variable 'x' is never used",
     "fullDescription": "The variable 'x' is declared but never used",
-    "suggestion": "Remove the unused variable"
+    "suggestion": "Remove the unused variable",
+    "agent": "bug-hunter",
+    "rule": "code-bugs",
+    "evidence": "const x = 10;",
+    "confidence": 95
   },
   {
     "file": "src/utils.ts",
@@ -74,7 +84,10 @@ Agents can return issues in two formats:
     "category": "quality",
     "shortDescription": "Missing error handling",
     "fullDescription": "The async function does not handle potential errors",
-    "suggestion": "Add try-catch block or .catch() handler"
+    "suggestion": "Add try-catch block or .catch() handler",
+    "agent": "bug-hunter",
+    "rule": "code-bugs, code-quality",
+    "confidence": 80
   }
 ]
 ```
@@ -88,6 +101,10 @@ Agents can return issues in two formats:
 - `shortDescription` or `short` or `message` (required)
 - `fullDescription` or `description` (optional)
 - `suggestion` (optional)
+- `agent` (optional) - agent name, auto-filled by pipeline
+- `rule` (optional) - rule name(s), auto-filled by pipeline
+- `evidence` (optional) - concrete code proof
+- `confidence` (optional) - certainty level 0-100
 
 ## Agent Prompt Example
 
@@ -126,7 +143,9 @@ The variable 'x' is declared but never used in the function.
 → Suggestion:
 Remove the unused variable or use it in the function body.
 
-From: bug-hunter
+Agent: bug-hunter
+Rule: code-bugs
+Confidence: 95%
 ────────────────────────────────────────────────────────────────────────────────
 
 ○ MEDIUM ✨ quality
@@ -139,7 +158,9 @@ The async function does not handle potential errors.
 → Suggestion:
 Add try-catch block or .catch() handler.
 
-From: bug-hunter
+Agent: bug-hunter
+Rule: code-bugs, code-quality
+Confidence: 80%
 ────────────────────────────────────────────────────────────────────────────────
 ```
 

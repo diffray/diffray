@@ -112,10 +112,10 @@ describe('CLI Schema Validation', () => {
       expect(result.base).toBe('main');
       expect(result.head).toBe('feature');
       expect(result.branch).toBe('develop');
-      expect(result.agent).toBe('bug-hunter');
-      expect(result['exclude-agent']).toBe('security-scan');
-      expect(result.rule).toBe('code-security');
-      expect(result['exclude-rule']).toBe('code-bugs');
+      expect(result.agent).toEqual(['bug-hunter']);
+      expect(result['exclude-agent']).toEqual(['security-scan']);
+      expect(result.rule).toEqual(['code-security']);
+      expect(result['exclude-rule']).toEqual(['code-bugs']);
       expect(result.executor).toBe('claude-cli');
     });
   });

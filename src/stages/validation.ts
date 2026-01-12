@@ -24,9 +24,10 @@ interface IndexedIssue extends Issue {
 import { getCached, CACHE_KEYS } from '../cache';
 import {
   chunk,
-  executeBatches,
   withSpinner,
   aggregateErrors,
+  allSucceeded,
+  getFailures,
   type BatchResult,
 } from '../batch-executor';
 import { loadAgents } from '../agents';
@@ -36,7 +37,7 @@ import { readFile } from 'node:fs/promises';
 
 // ============ Configuration ============
 
-const VALIDATION_BATCH_SIZE = 10; // Issues per batch
+const VALIDATION_BATCH_SIZE = 6; // Issues per batch
 
 // Validation confidence thresholds
 const MIN_VALIDATION_CONFIDENCE = 50; // Minimum confidence to keep an issue after validation
@@ -105,8 +106,20 @@ async function loadValidationInstructions(): Promise<string> {
   try {
     const instructionsPath = getDefaultPath('prompts', 'validation-instructions.md');
     return await readFile(instructionsPath, 'utf-8');
-  } catch {
-    // Fallback if file doesn't exist
+  } catch (error) {
+    // Log warning to help debug installation/permission issues
+    const isNotFound = error instanceof Error && 'code' in error && error.code === 'ENOENT';
+    if (isNotFound) {
+      log.warn(
+        'Validation instructions file not found (defaults/prompts/validation-instructions.md). Validation may produce lower quality results.'
+      );
+    } else {
+      const message = error instanceof Error ? error.message : String(error);
+      log.warn(
+        `Failed to load validation instructions (defaults/prompts/validation-instructions.md): ${message}`
+      );
+    }
+    // Fallback to empty string to allow validation to continue
     return '';
   }
 }
@@ -264,136 +277,163 @@ interface ValidationBatchResult extends BatchResult<number[]> {
   filteredIssues: FilteredIssue[];
 }
 
+// ============ Validation Output Parsers ============
+
 /**
- * Parse validated issue IDs from validator output
- * Supports two formats:
- * 1. New format: <json_output>{"issues": [{"id": 1, "confidence": 95}], "filtered_issues": [{"id": 2, "confidence": 20, "reason": "..."}]}</json_output>
- * 2. Legacy format: <valid-ids>[1, 2, 3]</valid-ids>
+ * Parser function type - attempts to parse validation output
+ * Returns ValidationParseResult if successful, null otherwise
+ */
+type ValidationParser = (output: string, batch?: IndexedIssue[]) => ValidationParseResult | null;
+
+/**
+ * Parser 1: JSON output format with issues and filtered_issues
+ * Format: <json_output>{"issues": [{"id": 1, "confidence": 95}], "filtered_issues": [...]}</json_output>
+ */
+const parseJsonOutputFormat: ValidationParser = (output) => {
+  const match = output.match(/<json_output>\s*([\s\S]*?)\s*<\/json_output>/);
+  if (!match?.[1]) return null;
+
+  try {
+    const data = JSON.parse(match[1]) as {
+      issues?: Array<{ id: number; confidence?: number }>;
+      filtered_issues?: Array<{ id: number; confidence?: number; reason?: string }>;
+    };
+
+    if (!data.issues && !data.filtered_issues) return null;
+
+    const validatedIssues: ValidatedIssue[] = (data.issues || [])
+      .filter((i) => typeof i.id === 'number')
+      .map((i) => ({
+        id: i.id,
+        confidence: typeof i.confidence === 'number' ? i.confidence : 100,
+      }));
+
+    const filteredIssues: FilteredIssue[] = (data.filtered_issues || [])
+      .filter((i) => typeof i.id === 'number')
+      .map((i) => ({
+        id: i.id,
+        confidence: typeof i.confidence === 'number' ? i.confidence : 0,
+        reason: i.reason || 'No reason provided',
+      }));
+
+    return { validatedIssues, filteredIssues };
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Parser 2: Legacy valid-ids format
+ * Format: <valid-ids>[1, 2, 3]</valid-ids>
+ */
+const parseLegacyIdsFormat: ValidationParser = (output) => {
+  const match = output.match(/<valid-ids>\s*(\[[\s\S]*?\])\s*<\/valid-ids>/);
+  if (!match?.[1]) return null;
+
+  try {
+    const ids = JSON.parse(match[1]);
+    if (!Array.isArray(ids) || !ids.every((id) => typeof id === 'number')) {
+      return null;
+    }
+
+    const validatedIssues = ids.map((id) => ({ id, confidence: 100 }));
+    return { validatedIssues, filteredIssues: [] };
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Parser 3: Fallback array format - any JSON array of numbers
+ * Format: [1, 2, 3]
+ */
+const parseFallbackArrayFormat: ValidationParser = (output) => {
+  const match = output.match(/\[\s*(\d+\s*(?:,\s*\d+\s*)*)\]/);
+  if (!match?.[1]) return null;
+
+  try {
+    const ids = JSON.parse(`[${match[1]}]`);
+    if (!Array.isArray(ids)) return null;
+
+    const validIds = ids.filter((id) => typeof id === 'number');
+    if (validIds.length === 0) return null;
+
+    const validatedIssues = validIds.map((id) => ({ id, confidence: 100 }));
+    return { validatedIssues, filteredIssues: [] };
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Parser 4: Fuzzy match format - matches issue objects with originals
+ * Format: <json>[{...issue objects...}]</json>
+ * Requires batch for similarity matching
+ */
+const parseFuzzyMatchFormat: ValidationParser = (output, batch) => {
+  if (!batch || batch.length === 0) return null;
+
+  const match = output.match(/<json>\s*([\s\S]*?)\s*<\/json>/);
+  if (!match?.[1]) return null;
+
+  try {
+    const issues = JSON.parse(match[1]);
+    if (!Array.isArray(issues) || issues.length === 0) return null;
+
+    const matchedIds = new Set<number>();
+
+    for (const returnedIssue of issues) {
+      let bestMatch: IndexedIssue | null = null;
+      let bestScore = 0;
+
+      for (const indexed of batch) {
+        if (matchedIds.has(indexed.id)) continue;
+
+        const score = calculateIssueSimilarity(indexed, returnedIssue);
+        if (score > bestScore && score >= SIMILARITY_THRESHOLD.MINIMUM_SCORE) {
+          bestScore = score;
+          bestMatch = indexed;
+        }
+      }
+
+      if (bestMatch) {
+        matchedIds.add(bestMatch.id);
+      }
+    }
+
+    if (matchedIds.size === 0) return null;
+
+    const validatedIssues = Array.from(matchedIds).map((id) => ({ id, confidence: 100 }));
+    return { validatedIssues, filteredIssues: [] };
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Parse validated issue IDs from validator output using parser chain
+ * Tries multiple formats in order of preference:
+ * 1. JSON output format (with confidence and filtering reasons)
+ * 2. Legacy valid-ids format
+ * 3. Fallback array format
+ * 4. Fuzzy match format (requires batch)
  */
 function parseValidatedIds(output: string, batch?: IndexedIssue[]): ValidationParseResult {
-  // Try new <json_output> format first (with issues + filtered_issues + confidence)
-  const jsonOutputMatch = output.match(/<json_output>\s*([\s\S]*?)\s*<\/json_output>/);
-  if (jsonOutputMatch?.[1]) {
-    try {
-      const data = JSON.parse(jsonOutputMatch[1]) as {
-        issues?: Array<{ id: number; confidence?: number }>;
-        filtered_issues?: Array<{ id: number; confidence?: number; reason?: string }>;
-      };
+  const parsers: ValidationParser[] = [
+    parseJsonOutputFormat,
+    parseLegacyIdsFormat,
+    parseFallbackArrayFormat,
+    parseFuzzyMatchFormat,
+  ];
 
-      if (data.issues || data.filtered_issues) {
-        const validatedIssues: ValidatedIssue[] = (data.issues || [])
-          .filter((i) => typeof i.id === 'number')
-          .map((i) => ({
-            id: i.id,
-            confidence: typeof i.confidence === 'number' ? i.confidence : 100,
-          }));
-
-        const filteredIssues: FilteredIssue[] = (data.filtered_issues || [])
-          .filter((i) => typeof i.id === 'number')
-          .map((i) => ({
-            id: i.id,
-            confidence: typeof i.confidence === 'number' ? i.confidence : 0,
-            reason: i.reason || 'No reason provided',
-          }));
-
-        return { validatedIssues, filteredIssues };
-      }
-    } catch {
-      // Fall through to legacy format
-    }
-  }
-
-  // Legacy: try <valid-ids>...</valid-ids> format
-  const tagMatch = output.match(/<valid-ids>\s*(\[[\s\S]*?\])\s*<\/valid-ids>/);
-  if (tagMatch?.[1]) {
-    try {
-      const ids = JSON.parse(tagMatch[1]);
-      if (Array.isArray(ids) && ids.every((id) => typeof id === 'number')) {
-        // Legacy format: assume 100% confidence for all kept issues
-        const validatedIssues = ids.map((id) => ({ id, confidence: 100 }));
-        return { validatedIssues, filteredIssues: [] };
-      }
-    } catch {
-      // Fall through to fallback
-    }
-  }
-
-  // Fallback: find any JSON array of numbers (e.g., [1, 2, 3])
-  const arrayMatch = output.match(/\[\s*(\d+\s*(?:,\s*\d+\s*)*)\]/);
-  if (arrayMatch?.[1]) {
-    try {
-      const ids = JSON.parse(`[${arrayMatch[1]}]`);
-      if (Array.isArray(ids)) {
-        const validIds = ids.filter((id) => typeof id === 'number');
-        if (validIds.length > 0) {
-          const validatedIssues = validIds.map((id) => ({ id, confidence: 100 }));
-          return { validatedIssues, filteredIssues: [] };
-        }
-      }
-    } catch {
-      // Fall through to JSON fallback
-    }
-  }
-
-  // Fallback: try <json>...</json> format with issue objects
-  // Use fuzzy matching to find original issues
-  if (batch && batch.length > 0) {
-    const jsonTagMatch = output.match(/<json>\s*([\s\S]*?)\s*<\/json>/);
-    if (jsonTagMatch?.[1]) {
-      try {
-        const issues = JSON.parse(jsonTagMatch[1]);
-        if (Array.isArray(issues) && issues.length > 0) {
-          const matchedIds = new Set<number>();
-
-          for (const returnedIssue of issues) {
-            // Find best matching original issue using similarity scoring
-            let bestMatch: IndexedIssue | null = null;
-            let bestScore = 0;
-
-            for (const indexed of batch) {
-              // Skip already matched issues
-              if (matchedIds.has(indexed.id)) continue;
-
-              const score = calculateIssueSimilarity(indexed, returnedIssue);
-              if (score > bestScore && score >= SIMILARITY_THRESHOLD.MINIMUM_SCORE) {
-                bestScore = score;
-                bestMatch = indexed;
-              }
-            }
-
-            if (bestMatch) {
-              matchedIds.add(bestMatch.id);
-            }
-          }
-
-          if (matchedIds.size > 0) {
-            const validatedIssues = Array.from(matchedIds).map((id) => ({ id, confidence: 100 }));
-            return { validatedIssues, filteredIssues: [] };
-          }
-        }
-      } catch {
-        // JSON parse failed
-      }
+  for (const parser of parsers) {
+    const result = parser(output, batch);
+    if (result !== null) {
+      return result;
     }
   }
 
   return { validatedIssues: [], filteredIssues: [] };
-}
-
-/**
- * Filter context.results keeping only issues with valid IDs
- */
-function filterByIds(
-  results: { issues: Issue[] }[],
-  validIds: Set<number>,
-  issueIdMap: Map<Issue, number>
-): void {
-  results.forEach((result) => {
-    result.issues = result.issues.filter((issue) => {
-      const id = issueIdMap.get(issue);
-      return id !== undefined && validIds.has(id);
-    });
-  });
 }
 
 /**
@@ -537,6 +577,49 @@ function logVerboseValidationInfo(
 }
 
 /**
+ * Create an error ValidationBatchResult
+ */
+function createErrorResult(error: unknown, duration: number): ValidationBatchResult {
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  return {
+    success: false,
+    data: [],
+    validatedIssues: [],
+    filteredIssues: [],
+    error: errorMessage,
+    duration,
+  };
+}
+
+/**
+ * Create a FilteredIssue with standardized reason formatting
+ */
+function createFilteredIssue(
+  id: number,
+  confidence: number,
+  reasonType: 'low-confidence' | 'negative-delta',
+  metadata: {
+    threshold?: number;
+    delta?: number;
+    originalConfidence?: number;
+  }
+): FilteredIssue {
+  let reason: string;
+
+  if (reasonType === 'low-confidence') {
+    reason = `Low validation confidence (${confidence}%, threshold: ${metadata.threshold}%)`;
+  } else {
+    reason = `Confidence delta too negative (${metadata.delta}, original: ${metadata.originalConfidence}%, validated: ${confidence}%)`;
+  }
+
+  return {
+    id,
+    confidence,
+    reason,
+  };
+}
+
+/**
  * Execute validation using MultiProgress tracking
  */
 async function executeWithProgress(
@@ -570,25 +653,13 @@ async function executeWithProgress(
     };
   } catch (error) {
     const duration = Date.now() - startTime;
-    const errorMessage = error instanceof Error ? error.message : String(error);
     progress.failTask('validation');
-
-    return {
-      success: false,
-      data: [],
-      validatedIssues: [],
-      filteredIssues: [],
-      error: errorMessage,
-      duration,
-    };
+    return createErrorResult(error, duration);
   }
 }
 
 /**
  * Execute validation using withSpinner (for quiet/stream/verbose modes)
- *
- * Note: Uses closure to bridge withSpinner's limited return type with our full result.
- * This is safe because executeForSpinner is called exactly once by withSpinner.
  */
 async function executeWithSpinner(
   executeCore: () => Promise<{
@@ -603,32 +674,11 @@ async function executeWithSpinner(
   batchIdx: number,
   totalBatches: number
 ): Promise<ValidationBatchResult> {
-  // Define result type for clarity
-  type FullResult = {
-    success: boolean;
-    data: number[];
+  // Structured data type that withSpinner can handle generically
+  type ValidationData = {
+    validIds: number[];
     validatedIssues: ValidatedIssue[];
     filteredIssues: FilteredIssue[];
-    error?: string;
-  };
-
-  // Store full result in closure for access after withSpinner completes
-  // This is set exactly once by executeForSpinner, called by withSpinner
-  let fullResult: FullResult | null = null;
-
-  // Wrapper for withSpinner that stores full result and returns only required fields
-  const executeForSpinner = async (): Promise<{
-    success: boolean;
-    data: number[];
-    error?: string;
-  }> => {
-    const result = await executeCore();
-    fullResult = result; // Store for later access
-    return {
-      success: result.success,
-      data: result.data,
-      error: result.error,
-    };
   };
 
   const spinnerResult = await withSpinner(
@@ -640,29 +690,35 @@ async function executeWithSpinner(
       itemName: 'issue',
     },
     context.quiet ?? false,
-    executeForSpinner,
-    (validIds, duration) =>
+    // Inline wrapper to restructure executeCore result for withSpinner
+    async () => {
+      const result = await executeCore();
+      return {
+        success: result.success,
+        data: {
+          validIds: result.data,
+          validatedIssues: result.validatedIssues,
+          filteredIssues: result.filteredIssues,
+        },
+        error: result.error,
+      };
+    },
+    (data, duration) =>
       totalBatches > 1
-        ? `Validated batch ${batchIdx + 1}/${totalBatches} (${validIds.length} valid, ${duration}ms)`
-        : `Validated ${validIds.length} issue(s) (${duration}ms)`,
+        ? `Validated batch ${batchIdx + 1}/${totalBatches} (${data.validIds.length} valid, ${duration}ms)`
+        : `Validated ${data.validIds.length} issue(s) (${duration}ms)`,
     (error) =>
       totalBatches > 1
         ? `Validation failed (batch ${batchIdx + 1}): ${error}`
         : `Validation failed: ${error}`
   );
 
-  // Extract validated and filtered issues from stored result
-  // If withSpinner didn't execute (shouldn't happen), use empty arrays
-  const validatedIssues: ValidatedIssue[] =
-    (fullResult as FullResult | null)?.validatedIssues ?? [];
-  const filteredIssues: FilteredIssue[] = (fullResult as FullResult | null)?.filteredIssues ?? [];
-
   // Convert to ValidationBatchResult
   return {
     success: spinnerResult.success,
-    data: spinnerResult.data,
-    validatedIssues,
-    filteredIssues,
+    data: spinnerResult.data?.validIds ?? [],
+    validatedIssues: spinnerResult.data?.validatedIssues ?? [],
+    filteredIssues: spinnerResult.data?.filteredIssues ?? [],
     error: spinnerResult.error,
     duration: spinnerResult.duration,
   };
@@ -773,17 +829,8 @@ export function createValidationStage(): Stage {
         };
       }
 
-      // Collect all issues from all results and assign IDs
-      const allIssues: Issue[] = [];
-      const issueIdMap = new Map<Issue, number>();
-
-      context.results.forEach((result) => {
-        result.issues.forEach((issue) => {
-          const id = allIssues.length + 1;
-          allIssues.push(issue);
-          issueIdMap.set(issue, id);
-        });
-      });
+      // Read issues from context.issues (already deduplicated and filtered)
+      const allIssues = context.issues;
 
       if (allIssues.length === 0) {
         if (!context.quiet) {
@@ -870,54 +917,33 @@ export function createValidationStage(): Stage {
         // Validate all batches
         let batchResults: ValidationBatchResult[];
 
-        if (progress) {
-          // Use MultiProgress version with concurrency limiter
-          const limit = createLimiter(stageConcurrency);
-          batchResults = await Promise.all(
-            batches.map((batch, batchIdx) =>
-              limit(() =>
-                executeValidationBatch(
-                  batch,
-                  batchIdx,
-                  batches.length,
-                  validationAgent,
-                  finalExecutor,
-                  context,
-                  instructions,
-                  validationInstructions,
-                  progress
-                )
-              )
-            )
-          );
-        } else {
-          // Fallback to withSpinner version (no progress param)
-          // Cast to ValidationBatchResult[] since executeBatches returns BatchResult<number[]>[]
-          // but executeValidationBatch returns ValidationBatchResult (which extends BatchResult)
-          batchResults = (await executeBatches(
-            batches,
-            (batch, batchIdx, totalBatches) =>
+        // Use consistent Promise.all + limiter pattern for both progress and non-progress modes
+        // This preserves ValidationBatchResult type instead of unsafe cast from executeBatches
+        const limit = createLimiter(stageConcurrency);
+        batchResults = await Promise.all(
+          batches.map((batch, batchIdx) =>
+            limit(() =>
               executeValidationBatch(
                 batch,
                 batchIdx,
-                totalBatches,
+                batches.length,
                 validationAgent,
                 finalExecutor,
                 context,
                 instructions,
-                validationInstructions
-              ) as Promise<BatchResult<number[]>>,
-            { concurrency: stageConcurrency, quiet: context.quiet }
-          )) as unknown as ValidationBatchResult[];
-        }
+                validationInstructions,
+                progress // undefined when no progress
+              )
+            )
+          )
+        );
 
         // Stop progress display
         progress?.stop();
 
         // Check for failures
-        const hasFailures = batchResults.some((r) => !r.success);
-        if (hasFailures) {
-          const failures = batchResults.filter((r) => !r.success);
+        if (!allSucceeded(batchResults)) {
+          const failures = getFailures(batchResults);
           const stageError = aggregateErrors(failures.map((f) => f.error));
           return {
             stageId: 'validation',
@@ -938,25 +964,29 @@ export function createValidationStage(): Stage {
         const finalValidIds = new Set<number>();
         const deltaFilteredIssues: FilteredIssue[] = [];
 
+        // Pre-build Map for O(1) lookups instead of O(M) array.find()
+        const issueMap = new Map(indexedIssues.map((i) => [i.id, i]));
+
         for (const validated of allValidatedIssues) {
-          const originalIssue = indexedIssues.find((i) => i.id === validated.id);
+          const originalIssue = issueMap.get(validated.id);
           const originalConfidence = originalIssue?.confidence ?? 100;
           const delta = validated.confidence - originalConfidence;
 
           if (validated.confidence < MIN_VALIDATION_CONFIDENCE) {
             // Filter: validation confidence too low
-            deltaFilteredIssues.push({
-              id: validated.id,
-              confidence: validated.confidence,
-              reason: `Low validation confidence (${validated.confidence}%, threshold: ${MIN_VALIDATION_CONFIDENCE}%)`,
-            });
+            deltaFilteredIssues.push(
+              createFilteredIssue(validated.id, validated.confidence, 'low-confidence', {
+                threshold: MIN_VALIDATION_CONFIDENCE,
+              })
+            );
           } else if (delta < MAX_NEGATIVE_DELTA) {
             // Filter: confidence dropped too much
-            deltaFilteredIssues.push({
-              id: validated.id,
-              confidence: validated.confidence,
-              reason: `Confidence delta too negative (${delta}, original: ${originalConfidence}%, validated: ${validated.confidence}%)`,
-            });
+            deltaFilteredIssues.push(
+              createFilteredIssue(validated.id, validated.confidence, 'negative-delta', {
+                delta,
+                originalConfidence,
+              })
+            );
           } else {
             // Keep the issue
             finalValidIds.add(validated.id);
@@ -966,8 +996,8 @@ export function createValidationStage(): Stage {
         // Merge all filtered issues
         const mergedFilteredIssues = [...allFilteredIssues, ...deltaFilteredIssues];
 
-        // Filter context.results
-        filterByIds(context.results, finalValidIds, issueIdMap);
+        // Update context.issues with only valid issues
+        context.issues = indexedIssues.filter((issue) => finalValidIds.has(issue.id));
 
         const validCount = finalValidIds.size;
         const invalidCount = allIssues.length - validCount;
@@ -993,7 +1023,7 @@ export function createValidationStage(): Stage {
             log.newline();
             log.plain('Filtered issues:');
             for (const filtered of mergedFilteredIssues) {
-              const originalIssue = indexedIssues.find((i) => i.id === filtered.id);
+              const originalIssue = issueMap.get(filtered.id);
               if (originalIssue) {
                 log.plain(
                   `   [${filtered.id}] ${originalIssue.file}:${originalIssue.lineStart} — ${filtered.reason}`

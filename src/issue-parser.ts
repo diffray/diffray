@@ -55,6 +55,7 @@ interface RawIssueItem {
   confidence?: number | string;
 
   agent?: string;
+  rule?: string;
 }
 
 /**
@@ -124,8 +125,8 @@ function parseIssueItem(item: RawIssueItem, agent?: string): Issue {
   if (typeof item.confidence === 'number') {
     confidence = item.confidence;
   } else if (typeof item.confidence === 'string') {
-    const parsed = Number.parseInt(item.confidence, 10);
-    confidence = Number.isNaN(parsed) ? undefined : parsed;
+    const parsed = parseInt(item.confidence, 10);
+    confidence = isNaN(parsed) ? undefined : parsed;
   }
 
   return {
@@ -138,6 +139,7 @@ function parseIssueItem(item: RawIssueItem, agent?: string): Issue {
     fullDescription,
     suggestion,
     agent: agent ?? item.agent ?? 'unknown',
+    rule: item.rule,
     evidence,
     confidence,
   };

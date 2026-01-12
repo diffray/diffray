@@ -13,6 +13,7 @@ Return your findings as a **JSON array** wrapped in `<json>...</json>` XML tags:
     "shortDescription": "Brief one-line title (max 60 chars)",
     "fullDescription": "Detailed explanation (1-2 phrases)",
     "suggestion": "How to fix this issue",
+    "rule": "rule-name-from-file-rule-mappings",
     "evidence": "The actual code snippet that proves the issue exists",
     "confidence": 90
   }
@@ -38,6 +39,7 @@ Return your findings as a **JSON array** wrapped in `<json>...</json>` XML tags:
 - **shortDescription**: Brief title (max 60 chars)
 - **fullDescription**: Concise explanation (1-2 phrases)
 - **suggestion**: Actionable fix recommendation (optional)
+- **rule**: The rule name from File-Rule Mappings section (REQUIRED if mappings provided)
 - **evidence**: The actual code that proves the issue exists (REQUIRED)
 - **confidence**: Certainty level 0-100 (REQUIRED, only report issues with confidence >= 80)
 
@@ -67,6 +69,9 @@ Return your findings as a **JSON array** wrapped in `<json>...</json>` XML tags:
 
 ## Example
 
+Given File-Rule Mappings:
+- src/utils/validator.ts: rule="input-validation"
+
 <json>
 [
   {
@@ -78,6 +83,7 @@ Return your findings as a **JSON array** wrapped in `<json>...</json>` XML tags:
     "shortDescription": "Potential null pointer dereference",
     "fullDescription": "The 'user' object may be null at this point, but is accessed without a null check. This will cause a runtime error if user is null.",
     "suggestion": "Add a null check before accessing user properties: if (user) { ... }",
+    "rule": "input-validation",
     "evidence": "Line 43: const name = user.name; // user can be null from getUserById()",
     "confidence": 95
   }

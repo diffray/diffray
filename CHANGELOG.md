@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-01-12
+
+### Added
+
+- **Confidence filtering stage** - Filter issues by confidence threshold before validation
+  - New `--confidence <0-100>` CLI option (default: 80)
+  - Separate stage `confidence-filter` runs after review, before validation
+  - Issues below threshold are filtered out early to reduce validation cost
+
+- **CLI schema validation** - Zod-based input validation for all CLI arguments
+  - Type-safe parsing in `src/cli-schema.ts`
+  - Comprehensive test coverage in `src/cli-schema.test.ts`
+  - Validates numeric ranges, comma-separated lists, and option combinations
+
+- **Evidence field in issues** - Agents can now provide concrete code proof
+  - New optional `evidence` field in Issue type
+  - Shows exact code snippet that demonstrates the issue
+  - Displayed in formatted output with syntax highlighting
+
+- **Validation instructions split** - Optimized prompt structure for better caching
+  - System prompt: Core principles only (57 lines, ~1.3KB)
+  - User prompt: Detailed instructions from `validation-instructions.md`
+  - Reduces API costs via prompt caching
+
+- **Validation rule** - Example rule at `.diffray/rules/validation.md`
+  - Documents validation stage behavior
+  - Provides guidance for custom validation agents
+
+### Changed
+
+- **Validation stage refactored** - Parser chain pattern for output formats
+  - Split `parseValidatedIds` into 4 separate parsers with clear responsibilities
+  - Improved testability and maintainability
+  - Better error handling with explicit format fallbacks
+
+- **Validation agent simplified** - Moved detailed instructions to separate file
+  - Agent file now focuses on core principles
+  - Detailed instructions in `defaults/prompts/validation-instructions.md`
+  - More efficient prompt caching
+
+- **Issue parser enhanced** - Support for evidence field and confidence
+  - Parses new `evidence` field from agent output
+  - Handles missing confidence gracefully (defaults to 100)
+  - Better error messages for malformed JSON
+
+- **Output format updated** - Agents must now provide evidence when possible
+  - Updated `defaults/prompts/output-format.md` with evidence examples
+  - Guidance on when to include concrete code proof
+
+### Fixed
+
+- Deduplication now preserves evidence field from issues
+- Rule badge display for validation rules in `diffray rules` command
+
 ## [0.3.2] - 2026-01-12
 
 ### Added
@@ -103,7 +157,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Major codebase cleanup and modernization
 
-[Unreleased]: https://github.com/diffray/diffray/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/diffray/diffray/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/diffray/diffray/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/diffray/diffray/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/diffray/diffray/compare/v0.2.0...v0.3.1
 [0.2.0]: https://github.com/diffray/diffray/compare/v0.1.3...v0.2.0

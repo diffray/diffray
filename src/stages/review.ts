@@ -20,6 +20,7 @@ import { getTokenCounterName, estimateTokens } from '../token-counter';
 import { createLimiter } from '../concurrency';
 import { loadInstructions } from '../config';
 import { withSpinner, aggregateErrors, type BatchResult } from '../batch-executor';
+import { matchPattern } from '../rules';
 
 interface BatchInfo {
   batches: ReturnType<typeof batchDiffs>;
@@ -27,6 +28,7 @@ interface BatchInfo {
   rules: number;
   ruleNames: string[];
   systemPrompt: string;
+  fileToRule: Map<string, string>; // Map file path to rule name
 }
 
 /** Result type for agent batch execution */
@@ -49,11 +51,28 @@ async function prepareBatchInfo(
     }
 
     // Get diffs for this Agent (combine files from all matched rules)
-    // Combine files from all rules (deduplicated)
+    // Create file -> rule mapping
+    // Strategy: When a file matches multiple rules, use the most specific rule
+    // (determined by longest matching pattern length)
+    const fileToRule = new Map<string, string>();
+    const fileToPatternLength = new Map<string, number>();
     const matchedFileSet = new Set<string>();
+
     for (const mr of matchedRules) {
       for (const file of mr.files) {
         matchedFileSet.add(file);
+
+        // Find longest matching pattern for this file
+        const matchingPattern = mr.rule.patterns.find((pattern) => matchPattern(file, pattern));
+
+        const patternLength = matchingPattern?.length ?? 0;
+        const currentLength = fileToPatternLength.get(file) ?? 0;
+
+        // Use this rule if it has a longer (more specific) pattern
+        if (patternLength > currentLength) {
+          fileToRule.set(file, mr.rule.name);
+          fileToPatternLength.set(file, patternLength);
+        }
       }
     }
     const agentDiffs = context.diffs.filter((diff) => matchedFileSet.has(diff.file));
@@ -80,6 +99,7 @@ async function prepareBatchInfo(
       rules: matchedRules.length,
       ruleNames,
       systemPrompt,
+      fileToRule,
     });
   }
 
@@ -93,6 +113,7 @@ async function executeBatch(
   executor: NonNullable<ReturnType<typeof executorFactory.get>>,
   systemPrompt: string,
   systemTokens: number,
+  fileToRule: Map<string, string>,
   context: PipelineContext,
   limit: ReturnType<typeof createLimiter>,
   progress?: MultiProgress
@@ -117,7 +138,20 @@ async function executeBatch(
       .filter(Boolean)
       .join('\n');
 
-    const batchDiffsText = `${repoContext}\n\n${batch.diffs
+    // Build file->rule mapping section for prompt
+    const fileRuleMappings = batch.diffs
+      .map((diff) => {
+        const ruleName = fileToRule.get(diff.file);
+        return ruleName ? `- ${diff.file}: rule="${ruleName}"` : null;
+      })
+      .filter(Boolean);
+
+    const ruleContext =
+      fileRuleMappings.length > 0
+        ? `\n\n# File-Rule Mappings\n\nEach file was matched by a specific rule. Include the rule name in the "rule" field of each issue:\n${fileRuleMappings.join('\n')}`
+        : '';
+
+    const batchDiffsText = `${repoContext}${ruleContext}\n\n${batch.diffs
       .map((diff) => `File: ${diff.file}\n${diff.diff}`)
       .join('\n\n')}`;
 
@@ -162,6 +196,7 @@ async function executeBatch(
     // Core execution logic - shared between progress and spinner paths
     const executeCore = async (): Promise<{ success: boolean; data: Issue[]; error?: string }> => {
       const result = await executorFactory.executeAgent(execContext);
+      // Parse issues - LLM should return rule field based on file-rule mapping in prompt
       const batchIssues = parseIssues(result.output, agent.name);
       return {
         success: result.success,
@@ -375,6 +410,7 @@ export function createReviewStage(): Stage {
                     executor,
                     systemPrompt,
                     systemTokens,
+                    batchInfo.fileToRule,
                     context,
                     limit,
                     progress

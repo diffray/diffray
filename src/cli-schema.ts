@@ -2,6 +2,11 @@ import { z } from 'zod';
 import type { IssueSeverity } from './types';
 
 /**
+ * Valid severity levels for filtering
+ */
+const VALID_SEVERITIES: IssueSeverity[] = ['critical', 'high', 'medium', 'low'];
+
+/**
  * Schema for review command CLI arguments
  * Validates user input with clear error messages
  */
@@ -42,18 +47,16 @@ export const ReviewArgsSchema = z.object({
     .refine(
       (val) => {
         if (!val) return true;
-        const validSeverities: IssueSeverity[] = ['critical', 'high', 'medium', 'low'];
         const values = val.split(',').map((s) => s.trim());
-        const invalid = values.filter((v) => !validSeverities.includes(v as IssueSeverity));
+        const invalid = values.filter((v) => !VALID_SEVERITIES.includes(v as IssueSeverity));
         return invalid.length === 0;
       },
       (val) => {
         if (!val) return { message: '' };
-        const validSeverities: IssueSeverity[] = ['critical', 'high', 'medium', 'low'];
         const values = val.split(',').map((s) => s.trim());
-        const invalid = values.filter((v) => !validSeverities.includes(v as IssueSeverity));
+        const invalid = values.filter((v) => !VALID_SEVERITIES.includes(v as IssueSeverity));
         return {
-          message: `Invalid severity values: ${invalid.join(', ')}. Must be one of: ${validSeverities.join(', ')}`,
+          message: `Invalid severity values: ${invalid.join(', ')}. Must be one of: ${VALID_SEVERITIES.join(', ')}`,
         };
       }
     )
@@ -62,14 +65,40 @@ export const ReviewArgsSchema = z.object({
       return val.split(',').map((s) => s.trim()) as IssueSeverity[];
     }),
 
+  // List-based string arguments (comma-separated)
+  agent: z
+    .string()
+    .optional()
+    .transform((val) => {
+      if (!val) return undefined;
+      return val.split(',').map((s) => s.trim());
+    }),
+  'exclude-agent': z
+    .string()
+    .optional()
+    .transform((val) => {
+      if (!val) return undefined;
+      return val.split(',').map((s) => s.trim());
+    }),
+  rule: z
+    .string()
+    .optional()
+    .transform((val) => {
+      if (!val) return undefined;
+      return val.split(',').map((s) => s.trim());
+    }),
+  'exclude-rule': z
+    .string()
+    .optional()
+    .transform((val) => {
+      if (!val) return undefined;
+      return val.split(',').map((s) => s.trim());
+    }),
+
   // String arguments
   base: z.string().optional(),
   head: z.string().optional(),
   branch: z.string().optional(),
-  agent: z.string().optional(),
-  'exclude-agent': z.string().optional(),
-  rule: z.string().optional(),
-  'exclude-rule': z.string().optional(),
   executor: z.string().optional(),
 
   // Boolean flags

@@ -19,6 +19,7 @@ import { loadExecutors } from './executors';
 import { log } from './logger';
 import { formatIssuesByFile, formatAsJSON } from './issue-formatter';
 import { matchPattern } from './rules';
+import type { IssueSeverity } from './types';
 import { configCmd } from './cli/commands/config';
 import { agentsCmd } from './cli/commands/agents';
 import { executorsCmd } from './cli/commands/executors';
@@ -46,15 +47,15 @@ async function runReview(args: {
   verbose?: boolean;
   json?: boolean;
   stream?: boolean;
-  severity?: string;
+  severity?: IssueSeverity[];
   base?: string;
   head?: string;
   branch?: string;
   skipValidation?: boolean;
-  agent?: string;
-  excludeAgent?: string;
-  rule?: string;
-  excludeRule?: string;
+  agent?: string[];
+  excludeAgent?: string[];
+  rule?: string[];
+  excludeRule?: string[];
   executor?: string;
   confidence?: number;
 }) {
@@ -62,15 +63,15 @@ async function runReview(args: {
     verbose = false,
     json = false,
     stream = false,
-    severity,
+    severity: severityFilter,
     base: baseArg,
     head: headArg,
     branch,
     skipValidation = false,
-    agent,
-    excludeAgent,
-    rule,
-    excludeRule,
+    agent: agentFilter,
+    excludeAgent: excludeAgents,
+    rule: ruleFilter,
+    excludeRule: excludeRules,
     executor,
     confidence,
   } = args;
@@ -125,16 +126,6 @@ async function runReview(args: {
       }
     }
   }
-
-  const agentFilter = agent ? agent.split(',').map((a: string) => a.trim()) : undefined;
-  const excludeAgents = excludeAgent
-    ? excludeAgent.split(',').map((a: string) => a.trim())
-    : undefined;
-  const ruleFilter = rule ? rule.split(',').map((r: string) => r.trim()) : undefined;
-  const excludeRules = excludeRule
-    ? excludeRule.split(',').map((r: string) => r.trim())
-    : undefined;
-  const severityFilter = severity ? severity.split(',').map((s: string) => s.trim()) : undefined;
 
   if (!json) {
     log.logo();
@@ -307,11 +298,12 @@ async function runReview(args: {
     minConfidence: confidence,
   });
 
-  const issuesFromResults = result.context.results.flatMap((r) => r.issues);
+  // Read from context.issues (already deduplicated, filtered, and validated)
+  const issuesFromContext = result.context.issues;
 
-  let filteredIssues = issuesFromResults;
+  let filteredIssues = issuesFromContext;
   if (severityFilter && severityFilter.length > 0) {
-    filteredIssues = issuesFromResults.filter((issue) => severityFilter.includes(issue.severity));
+    filteredIssues = issuesFromContext.filter((issue) => severityFilter.includes(issue.severity));
   }
 
   if (json) {
@@ -469,7 +461,7 @@ Examples:
         verbose: validatedArgs.verbose,
         json: validatedArgs.json,
         stream: validatedArgs.stream,
-        severity: validatedArgs.severity?.join(','), // Convert back to comma-separated string for runReview
+        severity: validatedArgs.severity,
         base: validatedArgs.base,
         head: validatedArgs.head,
         branch: validatedArgs.branch,

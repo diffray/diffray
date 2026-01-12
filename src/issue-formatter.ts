@@ -133,7 +133,13 @@ export function formatIssue(issue: Issue, compact = false): string {
     }
 
     output.push('');
-    output.push(`${colors.gray}From: ${issue.agent}${colors.reset}`);
+    output.push(`${colors.gray}Agent: ${issue.agent}${colors.reset}`);
+    if (issue.rule) {
+      output.push(`${colors.gray}Rule: ${issue.rule}${colors.reset}`);
+    }
+    if (issue.confidence !== undefined) {
+      output.push(`${colors.gray}Confidence: ${issue.confidence}%${colors.reset}`);
+    }
     output.push('');
     output.push(colors.gray + '─'.repeat(80) + colors.reset);
   }

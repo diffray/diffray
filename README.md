@@ -510,6 +510,12 @@ Focus on Python-specific security issues:
 diffray rules
 ```
 
+You'll see your rule with a badge indicating its source:
+- **◆** defaults — Built-in rules
+- **◉** extends — Rules from extended repositories
+- **◇** user — Your personal rules (`~/.diffray/rules/`)
+- **●** project — Project rules (`.diffray/rules/`)
+
 **Step 4.** Test which files match your rule:
 
 ```bash
@@ -608,6 +614,45 @@ Check for:
 3. Private keys
 4. Sensitive URLs
 ```
+
+#### Input validation with Zod
+
+```markdown
+---
+name: input-validation
+description: Ensure all input validation uses Zod schemas
+patterns:
+  - "src/**/*.ts"
+  - "bin/**/*.ts"
+agent: general
+---
+
+# Input Validation with Zod
+
+All input validation must use Zod schemas for type safety and consistency.
+
+## ❌ Avoid manual validation:
+- Manual `parseInt`, `parseFloat`, `isNaN` checks
+- String splitting with manual array validation
+- Custom error throwing for validation
+- Inline boundary checks (e.g., `if (val < 0 || val > 100)`)
+
+## ✅ Use Zod schemas instead:
+- `.coerce.number()` for automatic number parsing
+- `.transform()` for custom transformations
+- `.refine()` for validation with clear error messages
+- Centralized schemas in separate files (e.g., `*-schema.ts`)
+
+## Example
+
+See `src/cli-schema.ts` for proper Zod validation patterns.
+
+## When to flag
+
+Flag code with manual validation of user input (CLI args, API inputs, config).
+```
+
+> **Note:** This is a real example from the diffray codebase. See `.diffray/rules/validation.md` for the full version.
 
 #### Documentation checker
 
