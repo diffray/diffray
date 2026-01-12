@@ -16,6 +16,13 @@ src/generated/
 # Environment variables
 .env
 .env.local
+.env.*
+
+# API Keys and Tokens (never commit these!)
+*.pem
+*.key
+!**/node_modules/**/*.key
+!package-lock.json
 
 # Logs
 *.log

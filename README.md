@@ -784,6 +784,11 @@ Exit code is non-zero if issues are found.
 
 **GitHub Actions example:**
 
+> **⚠️ Security Warning:**
+> - Never commit `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` to git
+> - Always use GitHub Secrets for API keys in CI/CD
+> - For local development: use `claude setup-token` to generate `CLAUDE_CODE_OAUTH_TOKEN`
+
 ```yaml
 name: Code Review
 on: [pull_request]
@@ -802,9 +807,15 @@ jobs:
 
       - run: npm install -g diffray @anthropic-ai/claude-code
 
-      - run: claude auth login --api-key ${{ secrets.ANTHROPIC_API_KEY }}
-
+      # Option 1: Use ANTHROPIC_API_KEY (recommended for CI/CD)
       - run: diffray --base origin/${{ github.base_ref }} --json --severity critical,high
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      # Option 2: Use CLAUDE_CODE_OAUTH_TOKEN (get via: claude setup-token)
+      # - run: diffray --base origin/${{ github.base_ref }} --json --severity critical,high
+      #   env:
+      #     CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 ```
 
 ### How much does it cost?
