@@ -279,3 +279,45 @@ export async function loadInstructions(): Promise<string> {
 export function getInstructionsPath(): string {
   return INSTRUCTIONS_FILE;
 }
+
+/**
+ * Add an extend URL to config file
+ * @param url - Git URL to add
+ * @param global - If true, add to global config, otherwise to project config
+ * @param projectPath - Project path (required if global is false)
+ */
+export async function addExtendToConfig(
+  url: string,
+  global: boolean,
+  projectPath?: string
+): Promise<void> {
+  const configPath = global
+    ? GLOBAL_CONFIG_FILE
+    : join(projectPath || process.cwd(), PROJECT_CONFIG_FILE);
+
+  // Load existing config or create empty object
+  let config: Record<string, unknown> = {};
+  try {
+    const content = await readFile(configPath, 'utf-8');
+    config = JSON.parse(content);
+  } catch {
+    // File doesn't exist or invalid JSON - start fresh
+  }
+
+  // Ensure extends array exists
+  if (!Array.isArray(config.extends)) {
+    config.extends = [];
+  }
+
+  // Add URL if not already present
+  if (!config.extends.includes(url)) {
+    config.extends.push(url);
+  }
+
+  // Save config
+  if (global) {
+    await mkdir(GLOBAL_CONFIG_DIR, { recursive: true });
+  }
+  await writeFile(configPath, JSON.stringify(config, null, 2));
+  invalidateCache(CACHE_KEYS.CONFIG);
+}

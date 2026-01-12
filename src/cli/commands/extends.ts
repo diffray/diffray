@@ -35,9 +35,18 @@ Examples:
           description: 'Force re-download even if already installed',
           alias: 'f',
         },
+        global: {
+          type: 'boolean',
+          description: 'Add to global config (~/.diffray/config.json) instead of project',
+          alias: 'g',
+        },
       },
       run: async ({ args }) => {
-        await updateExtends({ force: args.force, url: args.url as string | undefined });
+        await updateExtends({
+          force: args.force,
+          url: args.url as string | undefined,
+          global: args.global,
+        });
       },
     },
     list: {

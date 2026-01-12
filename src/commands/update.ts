@@ -2,7 +2,7 @@
  * Extends command - download/update extends from git repositories
  */
 
-import { loadConfig } from '../config';
+import { loadConfig, addExtendToConfig } from '../config';
 import { createLimiter } from '../concurrency';
 import { log } from '../logger';
 import {
@@ -22,6 +22,7 @@ export interface UpdateOptions {
   force?: boolean;
   projectPath?: string;
   url?: string; // Install specific URL instead of from config
+  global?: boolean; // Add to global config instead of project config
 }
 
 /**
@@ -118,6 +119,13 @@ export async function updateExtends(options: UpdateOptions = {}): Promise<void> 
   const successCount = results.filter((r) => r.status === 'success').length;
   const skipCount = results.filter((r) => r.status === 'skipped').length;
   const errorCount = results.filter((r) => r.status === 'error').length;
+
+  // If URL was provided and install succeeded, add to config
+  if (options.url && successCount > 0) {
+    const configType = options.global ? 'global' : 'project';
+    await addExtendToConfig(options.url, !!options.global, projectPath);
+    log.success(`Added to ${configType} config`);
+  }
 
   log.info('');
   log.info(`Done: ${successCount} installed, ${skipCount} skipped, ${errorCount} failed`);
