@@ -13,20 +13,36 @@ For EVERY issue, before deciding to keep or filter:
 
 Before marking an issue as valid, check if the change was INTENTIONAL:
 
-**Check commit messages:**
-- Look for explanations of WHY the change was made
-- Look for trade-off discussions ("speeds up X at cost of Y")
-- Look for bug fix context ("fixes timeout errors", "prevents race condition")
+1. **Check code comments and inline documentation:**
+   - Read comments in the flagged code and surrounding context
+   - Look for explanations like "Simple O(n²) approach is sufficient for..."
+   - Check for performance/complexity justifications
+   - Look for security trade-off explanations
+   - Comments starting with "Note:", "IMPORTANT:", "Why:" are deliberate decisions
 
-**Recognize deliberate trade-off patterns:**
-- "Lazy → Eager initialization" often FIXES timeout/context errors
-- "Fine-grained → Coarse locking" trades parallelism for correctness
-- Moving code to constructor/startup often fixes runtime errors
-- Keywords in commits: "fixes", "prevents", "to avoid", "instead of"
+2. **Check project documentation:**
+   - Read CLAUDE.md, README.md for architectural decisions
+   - Check for explicit patterns or conventions documented
+   - Look for "Development Notes", "Architecture" sections
+   - Check if the flagged pattern is a documented standard
 
-**An issue is FALSE POSITIVE if commit message shows:**
-- The change intentionally introduces the "problem" to fix something else
-- The author explicitly chose this trade-off
+3. **Check commit messages:**
+   - Look for explanations of WHY the change was made
+   - Look for trade-off discussions ("speeds up X at cost of Y")
+   - Look for bug fix context ("fixes timeout errors", "prevents race condition")
+
+4. **Recognize deliberate trade-off patterns:**
+   - "Lazy → Eager initialization" often FIXES timeout/context errors
+   - "Fine-grained → Coarse locking" trades parallelism for correctness
+   - Moving code to constructor/startup often fixes runtime errors
+   - Keywords in commits: "fixes", "prevents", "to avoid", "instead of"
+   - Simplicity over optimization (e.g., "sufficient for typical use case")
+
+**An issue is FALSE POSITIVE if:**
+- Code has explanatory comments justifying the approach
+- Project documentation explicitly allows/recommends this pattern
+- Commit message shows the change intentionally introduces the "problem" to fix something else
+- The author explicitly chose this trade-off with rationale
 - The "issue" is actually the FIX for a different bug
 
 ## Common False Positive Patterns (ALWAYS FILTER)
@@ -40,8 +56,10 @@ Before marking an issue as valid, check if the change was INTENTIONAL:
 3. **Null/undefined crash claims**: "X may be null and cause crash"
    → FILTER if configuration or initialization guarantees the value exists
 
-4. **Ignoring intentional design**: Issue about code with explanatory comments
-   → FILTER if developer explicitly documented the reasoning
+4. **Ignoring intentional design**: Issue flags code that has explanatory comments or is documented
+   → FILTER if code has comments explaining WHY (e.g., "Simple approach is sufficient for...")
+   → FILTER if CLAUDE.md or README.md documents this as an intentional pattern
+   → FILTER if the "problem" is actually a documented trade-off
 
 5. **Severity inflation**: Exaggerated impact or unrealistic attack vectors
    → FILTER if severity is overstated given actual code safeguards

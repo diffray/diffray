@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Validation stage improvements** - Better context awareness for intentional design decisions
+  - Validation instructions now explicitly check code comments and inline documentation
+  - Added guidance to check CLAUDE.md and README.md for architectural decisions
+  - Repository context now mentions project documentation files
+  - Validation agent prompted to verify comments explaining trade-offs before flagging issues
+
 ## [0.4.0] - 2026-01-12
 
 ### Added

@@ -7,6 +7,17 @@ import type { IssueSeverity } from './types';
 const VALID_SEVERITIES: IssueSeverity[] = ['critical', 'high', 'medium', 'low'];
 
 /**
+ * Reusable schema for comma-separated list parsing
+ */
+const commaSeparatedList = z
+  .string()
+  .optional()
+  .transform((val) => {
+    if (!val) return undefined;
+    return val.split(',').map((s) => s.trim());
+  });
+
+/**
  * Schema for review command CLI arguments
  * Validates user input with clear error messages
  */
@@ -66,34 +77,10 @@ export const ReviewArgsSchema = z.object({
     }),
 
   // List-based string arguments (comma-separated)
-  agent: z
-    .string()
-    .optional()
-    .transform((val) => {
-      if (!val) return undefined;
-      return val.split(',').map((s) => s.trim());
-    }),
-  'exclude-agent': z
-    .string()
-    .optional()
-    .transform((val) => {
-      if (!val) return undefined;
-      return val.split(',').map((s) => s.trim());
-    }),
-  rule: z
-    .string()
-    .optional()
-    .transform((val) => {
-      if (!val) return undefined;
-      return val.split(',').map((s) => s.trim());
-    }),
-  'exclude-rule': z
-    .string()
-    .optional()
-    .transform((val) => {
-      if (!val) return undefined;
-      return val.split(',').map((s) => s.trim());
-    }),
+  agent: commaSeparatedList,
+  'exclude-agent': commaSeparatedList,
+  rule: commaSeparatedList,
+  'exclude-rule': commaSeparatedList,
 
   // String arguments
   base: z.string().optional(),
