@@ -5,7 +5,7 @@
 /**
  * Source of configuration item (where it was loaded from)
  */
-export type ConfigSource = 'defaults' | 'user' | 'project';
+export type ConfigSource = 'defaults' | 'extends' | 'user' | 'project';
 
 export interface GitDiff {
   file: string;

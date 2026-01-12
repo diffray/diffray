@@ -8,6 +8,9 @@ import {
   ensureAtHead,
   hasUncommittedChanges,
   checkoutRef,
+  getDefaultBranch,
+  branchExists,
+  getCurrentBranch,
 } from './git';
 import { loadConfig } from './config';
 import { Pipeline } from './pipeline';
@@ -20,6 +23,7 @@ import { configCmd } from './cli/commands/config';
 import { agentsCmd } from './cli/commands/agents';
 import { executorsCmd } from './cli/commands/executors';
 import { rulesCmd } from './cli/commands/rules';
+import { extendsCmd } from './cli/commands/extends';
 
 function getStatusIcon(status: string): string {
   switch (status) {
@@ -43,6 +47,7 @@ async function runReview(args: {
   severity?: string;
   base?: string;
   head?: string;
+  branch?: string;
   skipValidation?: boolean;
   agent?: string;
   excludeAgent?: string;
@@ -55,8 +60,9 @@ async function runReview(args: {
     json = false,
     stream = false,
     severity,
-    base,
-    head,
+    base: baseArg,
+    head: headArg,
+    branch,
     skipValidation = false,
     agent,
     excludeAgent,
@@ -64,6 +70,58 @@ async function runReview(args: {
     excludeRule,
     executor,
   } = args;
+
+  // Resolve --branch to --base and --head
+  let base = baseArg;
+  let head = headArg;
+
+  if (branch !== undefined && branch !== '') {
+    // --branch . = current branch, --branch <name> = specific branch
+    const targetBranch = branch === '.' ? await getCurrentBranch() : branch;
+
+    if (!targetBranch) {
+      if (!json) {
+        log.error('Could not determine current branch (detached HEAD?)');
+        log.info('Specify branch explicitly: diffray review --branch feature-auth');
+      }
+      process.exit(1);
+    }
+
+    // Use explicit --base if provided, otherwise auto-detect
+    const baseBranch = baseArg || (await getDefaultBranch());
+    if (!baseBranch) {
+      if (!json) {
+        log.error('Could not detect default branch (main/master/develop)');
+        log.info('Use --base explicitly: diffray review --branch --base main');
+      }
+      process.exit(1);
+    }
+
+    // Check if specified branch exists (skip check for '.' = current branch)
+    if (branch !== '.' && !(await branchExists(branch))) {
+      if (!json) {
+        log.error(`Branch not found: ${branch}`);
+      }
+      process.exit(1);
+    }
+
+    // If target branch is same as base, just review uncommitted changes
+    if (targetBranch === baseBranch) {
+      if (!json) {
+        log.warn(
+          `Branch "${targetBranch}" is the base branch, reviewing uncommitted changes instead`
+        );
+      }
+      // Leave base/head as undefined to trigger default behavior
+    } else {
+      base = baseBranch;
+      head = targetBranch;
+      if (!json) {
+        log.info(`Reviewing "${targetBranch}" against "${baseBranch}"`);
+      }
+    }
+  }
+
   const agentFilter = agent ? agent.split(',').map((a: string) => a.trim()) : undefined;
   const excludeAgents = excludeAgent
     ? excludeAgent.split(',').map((a: string) => a.trim())
@@ -329,13 +387,13 @@ const reviewCmd = defineCommand({
 
 Examples:
   diffray review                        Review uncommitted changes
-  diffray review --base main            Compare current branch to main
+  diffray review --branch .             Current branch vs main (auto-detect)
+  diffray review --branch feature-auth  Specific branch vs main
+  diffray review --branch . --base dev  Current branch vs dev
+  diffray review --base main            Compare HEAD to main
   diffray review --agent general        Run only general agent
   diffray review --exclude-agent security-scan  Exclude specific agent
-  diffray review --rule code-security   Run only specific rule
-  diffray review --exclude-rule code-bugs  Exclude specific rule
   diffray review --severity critical,high
-  diffray review --executor cursor-agent-cli  Use specific executor
   diffray review --stream               Show thinking and tool usage`,
   },
   args: {
@@ -362,6 +420,10 @@ Examples:
     head: {
       type: 'string',
       description: 'Head commit/branch to compare to (default: HEAD)',
+    },
+    branch: {
+      type: 'string',
+      description: 'Review branch vs base (auto-detects main). Use "." for current branch.',
     },
     'skip-validation': {
       type: 'boolean',
@@ -391,6 +453,7 @@ Examples:
   run: async ({ args }) => {
     await runReview({
       ...args,
+      branch: args.branch,
       skipValidation: args['skip-validation'],
       excludeAgent: args['exclude-agent'],
       excludeRule: args['exclude-rule'],
@@ -410,5 +473,6 @@ export const main = defineCommand({
     agents: agentsCmd,
     executors: executorsCmd,
     rules: rulesCmd,
+    extends: extendsCmd,
   },
 });

@@ -56,6 +56,55 @@ export async function getCurrentBranch(): Promise<string | null> {
 }
 
 /**
+ * Get the default branch (main, master, or develop)
+ * Checks remote origin first, then falls back to local branches
+ */
+export async function getDefaultBranch(): Promise<string | null> {
+  // Try to get default branch from remote origin
+  try {
+    const result = await runGit(['symbolic-ref', 'refs/remotes/origin/HEAD']);
+    const ref = result.trim();
+    // refs/remotes/origin/main -> main
+    const branch = ref.replace('refs/remotes/origin/', '');
+    if (branch) return branch;
+  } catch {
+    // No remote or symbolic ref not set
+  }
+
+  // Fall back to checking if common default branches exist locally
+  const candidates = ['main', 'master', 'develop'];
+  for (const candidate of candidates) {
+    try {
+      await runGit(['rev-parse', '--verify', candidate]);
+      return candidate;
+    } catch {
+      // Branch doesn't exist
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Check if a branch exists (locally or remotely)
+ */
+export async function branchExists(branch: string): Promise<boolean> {
+  try {
+    // Check local branch
+    await runGit(['rev-parse', '--verify', branch]);
+    return true;
+  } catch {
+    // Check remote branch
+    try {
+      await runGit(['rev-parse', '--verify', `origin/${branch}`]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+/**
  * Get current HEAD commit SHA
  */
 export async function getCurrentHeadSha(): Promise<string> {

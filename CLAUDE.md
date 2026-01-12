@@ -62,7 +62,7 @@ Stages (sequential):
 **Agents** (`src/defaults/agents/*.md`):
 - Defined in Markdown with YAML frontmatter (ID, Order, Enabled, Executor)
 - Loaded directly from MD files on each run via `src/agents/md-loader.ts`
-- Sources (priority order): project `.diffray/agents/`, user `~/.diffray/agents/`, defaults
+- Sources (priority order): project `.diffray/agents/`, user `~/.diffray/agents/`, extends, defaults
 - Built-in agents:
   - `general` - General code reviewer focused on simplicity and clarity
   - `bug-hunter` - Detects bugs, logic errors and runtime issues
@@ -96,7 +96,14 @@ Stages (sequential):
 - Map glob patterns to agents
 - Contain additional prompts for matched files
 - Loaded directly from MD files on each run via `src/md-loader.ts`
-- Sources (priority order): project `.diffray/rules/`, user `~/.diffray/rules/`, defaults
+- Sources (priority order): project `.diffray/rules/`, user `~/.diffray/rules/`, extends, defaults
+
+**Extends** (`src/extends/`):
+- Load agents/rules from any git repository
+- Supports HTTPS (`https://github.com/owner/repo`) and SSH (`git@github.com:owner/repo.git`)
+- Optional ref with `#`: `https://github.com/owner/repo#v1.0`
+- Cloned to `~/.diffray/extends/`, tracked in `~/.diffray/extends.lock.json`
+- Key files: `parser.ts`, `downloader.ts`, `resolver.ts`, `lockfile.ts`, `loader.ts`
 
 ### Data Flow
 ```
@@ -152,6 +159,10 @@ interface Issue {
 - `diffray config show` - Show merged configuration
 - `diffray config init` - Initialize project config (.diffray.json)
 - `diffray config edit [--global]` - Edit config in $EDITOR
+- `diffray extends install` - Clone extends from config
+- `diffray extends install --force` - Force re-clone all extends
+- `diffray extends list` - Show installed extends
+- `diffray extends remove <git-url>` - Remove an installed extend
 
 ## Technology
 - Runtime: Node.js 18+ (uses native ES modules)
@@ -168,7 +179,7 @@ Configuration uses two levels with priority merge:
 - **Global**: `~/.diffray/config.json` - user-wide settings
 - **Project**: `.diffray.json` - project-specific overrides
 
-Priority: defaults < global < project
+Priority: defaults < extends < user (~/.diffray/) < project (.diffray/)
 
 **Config commands:**
 ```bash
@@ -181,6 +192,7 @@ diffray config edit --global     # Edit global config
 **Example global config** (`~/.diffray/config.json`):
 ```json
 {
+  "extends": ["https://github.com/diffray/diffray-rules"],
   "executor": "claude-cli",
   "concurrency": 6,
   "executors": {
@@ -224,6 +236,7 @@ diffray config edit --global     # Edit global config
 - `batchSize` - Items per batch (validation only, 1-50)
 
 **Key settings:**
+- `extends` - Git URLs to load agents/rules from (e.g., `["https://github.com/owner/repo#v1.0"]`)
 - `executor` - Active executor (`claude-cli`, `cursor-agent-cli`)
 - `concurrency` - Default parallel agents (1-10)
 - `executors.<name>.<stage>` - Per-executor stage settings
