@@ -39,6 +39,10 @@ export interface Issue {
   fullDescription: string;
   suggestion?: string;
   agent: string;
+  /** Concrete code proof that demonstrates the issue exists */
+  evidence?: string;
+  /** Certainty level 0-100 (only issues with ≥80% should be reported) */
+  confidence?: number;
 }
 
 /**
@@ -179,6 +183,8 @@ export interface PipelineContext {
   excludeRules?: string[]; // Exclude these rules (by name)
   agentFilter?: string[]; // Only run these agents (by name)
   excludeAgents?: string[]; // Exclude these agents (by name)
+  // Confidence filtering
+  minConfidence?: number; // Minimum confidence threshold (default: 80)
   // Config (loaded once in pipeline)
   config?: import('./config').Config;
 }

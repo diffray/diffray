@@ -37,7 +37,6 @@ interface RawIssueItem {
   // Full description variations
   fullDescription?: string;
   description?: string;
-  evidence?: string;
   detail?: string;
   details?: string;
   explanation?: string;
@@ -48,6 +47,12 @@ interface RawIssueItem {
   recommendation?: string;
   remediation?: string;
   solution?: string;
+
+  // Evidence - concrete code that proves the issue
+  evidence?: string;
+
+  // Confidence - certainty level 0-100
+  confidence?: number | string;
 
   agent?: string;
 }
@@ -102,7 +107,6 @@ function parseIssueItem(item: RawIssueItem, agent?: string): Issue {
   const fullDescription =
     item.fullDescription ||
     item.description ||
-    item.evidence ||
     item.detail ||
     item.details ||
     item.explanation ||
@@ -111,6 +115,18 @@ function parseIssueItem(item: RawIssueItem, agent?: string): Issue {
   // Map suggestion from various field names
   const suggestion =
     item.suggestion || item.fix || item.recommendation || item.remediation || item.solution;
+
+  // Evidence - concrete code that proves the issue
+  const evidence = item.evidence;
+
+  // Confidence - certainty level 0-100
+  let confidence: number | undefined;
+  if (typeof item.confidence === 'number') {
+    confidence = item.confidence;
+  } else if (typeof item.confidence === 'string') {
+    const parsed = Number.parseInt(item.confidence, 10);
+    confidence = Number.isNaN(parsed) ? undefined : parsed;
+  }
 
   return {
     file,
@@ -122,6 +138,8 @@ function parseIssueItem(item: RawIssueItem, agent?: string): Issue {
     fullDescription,
     suggestion,
     agent: agent ?? item.agent ?? 'unknown',
+    evidence,
+    confidence,
   };
 }
 

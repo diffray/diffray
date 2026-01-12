@@ -310,8 +310,9 @@ export async function addExtendToConfig(
   }
 
   // Add URL if not already present
-  if (!config.extends.includes(url)) {
-    config.extends.push(url);
+  const extendsArray = config.extends as string[];
+  if (!extendsArray.includes(url)) {
+    extendsArray.push(url);
   }
 
   // Save config

@@ -13,7 +13,7 @@ function sourceBadge(source: string): string {
     case 'defaults':
       return '◆'; // built-in
     case 'extends':
-      return '○'; // from extends
+      return '◉'; // from extends
     case 'user':
       return '◇'; // user override
     case 'project':
@@ -48,7 +48,7 @@ export async function listRules(): Promise<void> {
     log.newline();
   }
 
-  log.plain('◆ defaults  ○ extends  ◇ user  ● project');
+  log.plain('◆ defaults  ◉ extends  ◇ user  ● project');
 }
 
 /**

@@ -27,15 +27,24 @@ import {
   executeBatches,
   withSpinner,
   aggregateErrors,
-  allSucceeded,
-  getFailures,
   type BatchResult,
 } from '../batch-executor';
 import { loadAgents } from '../agents';
+import { loadInstructions } from '../config';
+import { getDefaultPath } from '../paths';
+import { readFile } from 'node:fs/promises';
 
 // ============ Configuration ============
 
 const VALIDATION_BATCH_SIZE = 10; // Issues per batch
+
+// Validation confidence thresholds
+const MIN_VALIDATION_CONFIDENCE = 50; // Minimum confidence to keep an issue after validation
+const MAX_NEGATIVE_DELTA = -40; // Maximum allowed confidence drop (validation - original)
+
+// Context window limits
+const MAX_DIFF_LENGTH = 2000; // Maximum characters per diff to prevent context overflow
+const DIFF_TRUNCATION_MESSAGE = '\n... (diff truncated due to size) ...';
 
 // Similarity scoring weights (total = 100)
 // These weights determine how much each attribute contributes to issue matching
@@ -86,6 +95,20 @@ async function loadValidationAgent(projectPath: string): Promise<Agent> {
       return DEFAULT_VALIDATION_AGENT;
     }
   });
+}
+
+/**
+ * Load validation instructions from defaults/prompts/validation-instructions.md
+ * Returns detailed instructions for user prompt
+ */
+async function loadValidationInstructions(): Promise<string> {
+  try {
+    const instructionsPath = getDefaultPath('prompts', 'validation-instructions.md');
+    return await readFile(instructionsPath, 'utf-8');
+  } catch {
+    // Fallback if file doesn't exist
+    return '';
+  }
 }
 
 // ============ Helper Functions ============
@@ -216,19 +239,79 @@ function calculateIssueSimilarity(
   return score;
 }
 
+/** Validated issue with confidence from validation */
+interface ValidatedIssue {
+  id: number;
+  confidence: number;
+}
+
+/** Filtered issue with reason and confidence from validation */
+interface FilteredIssue {
+  id: number;
+  confidence: number;
+  reason: string;
+}
+
+/** Result of parsing validation output */
+interface ValidationParseResult {
+  validatedIssues: ValidatedIssue[];
+  filteredIssues: FilteredIssue[];
+}
+
+/** Validation batch result with validated and filtered issues (extends BatchResult for compatibility) */
+interface ValidationBatchResult extends BatchResult<number[]> {
+  validatedIssues: ValidatedIssue[];
+  filteredIssues: FilteredIssue[];
+}
+
 /**
  * Parse validated issue IDs from validator output
- * Expects format: <valid-ids>[1, 2, 3]</valid-ids>
- * Falls back to matching issues from <json> format if validator returns full issues
+ * Supports two formats:
+ * 1. New format: <json_output>{"issues": [{"id": 1, "confidence": 95}], "filtered_issues": [{"id": 2, "confidence": 20, "reason": "..."}]}</json_output>
+ * 2. Legacy format: <valid-ids>[1, 2, 3]</valid-ids>
  */
-function parseValidatedIds(output: string, batch?: IndexedIssue[]): number[] {
-  // Try <valid-ids>...</valid-ids> format first
+function parseValidatedIds(output: string, batch?: IndexedIssue[]): ValidationParseResult {
+  // Try new <json_output> format first (with issues + filtered_issues + confidence)
+  const jsonOutputMatch = output.match(/<json_output>\s*([\s\S]*?)\s*<\/json_output>/);
+  if (jsonOutputMatch?.[1]) {
+    try {
+      const data = JSON.parse(jsonOutputMatch[1]) as {
+        issues?: Array<{ id: number; confidence?: number }>;
+        filtered_issues?: Array<{ id: number; confidence?: number; reason?: string }>;
+      };
+
+      if (data.issues || data.filtered_issues) {
+        const validatedIssues: ValidatedIssue[] = (data.issues || [])
+          .filter((i) => typeof i.id === 'number')
+          .map((i) => ({
+            id: i.id,
+            confidence: typeof i.confidence === 'number' ? i.confidence : 100,
+          }));
+
+        const filteredIssues: FilteredIssue[] = (data.filtered_issues || [])
+          .filter((i) => typeof i.id === 'number')
+          .map((i) => ({
+            id: i.id,
+            confidence: typeof i.confidence === 'number' ? i.confidence : 0,
+            reason: i.reason || 'No reason provided',
+          }));
+
+        return { validatedIssues, filteredIssues };
+      }
+    } catch {
+      // Fall through to legacy format
+    }
+  }
+
+  // Legacy: try <valid-ids>...</valid-ids> format
   const tagMatch = output.match(/<valid-ids>\s*(\[[\s\S]*?\])\s*<\/valid-ids>/);
   if (tagMatch?.[1]) {
     try {
       const ids = JSON.parse(tagMatch[1]);
       if (Array.isArray(ids) && ids.every((id) => typeof id === 'number')) {
-        return ids;
+        // Legacy format: assume 100% confidence for all kept issues
+        const validatedIssues = ids.map((id) => ({ id, confidence: 100 }));
+        return { validatedIssues, filteredIssues: [] };
       }
     } catch {
       // Fall through to fallback
@@ -243,7 +326,8 @@ function parseValidatedIds(output: string, batch?: IndexedIssue[]): number[] {
       if (Array.isArray(ids)) {
         const validIds = ids.filter((id) => typeof id === 'number');
         if (validIds.length > 0) {
-          return validIds;
+          const validatedIssues = validIds.map((id) => ({ id, confidence: 100 }));
+          return { validatedIssues, filteredIssues: [] };
         }
       }
     } catch {
@@ -283,7 +367,8 @@ function parseValidatedIds(output: string, batch?: IndexedIssue[]): number[] {
           }
 
           if (matchedIds.size > 0) {
-            return Array.from(matchedIds);
+            const validatedIssues = Array.from(matchedIds).map((id) => ({ id, confidence: 100 }));
+            return { validatedIssues, filteredIssues: [] };
           }
         }
       } catch {
@@ -292,7 +377,7 @@ function parseValidatedIds(output: string, batch?: IndexedIssue[]): number[] {
     }
   }
 
-  return [];
+  return { validatedIssues: [], filteredIssues: [] };
 }
 
 /**
@@ -339,24 +424,31 @@ function getValidationExecutor(
 }
 
 /**
- * Execute validation for a single batch of issues
- * Returns array of valid issue IDs
- * @param progress - Optional MultiProgress for progress tracking (skips withSpinner when provided)
+ * Truncate diff content if it exceeds maximum length to prevent context window overflow
  */
-async function executeValidationBatch(
-  batch: IndexedIssue[],
-  batchIdx: number,
-  totalBatches: number,
-  validationAgent: Agent,
-  executor: AgentExecutor,
-  context: PipelineContext,
-  progress?: MultiProgress
-): Promise<BatchResult<number[]>> {
-  // Mark task as running on first batch (when using MultiProgress)
-  if (progress && batchIdx === 0) {
-    progress.startTask('validation');
+function truncateDiff(diff: string, maxLength: number): string {
+  if (diff.length <= maxLength) {
+    return diff;
   }
 
+  // Try to keep the beginning of the diff (which usually has the most important changes)
+  const halfLength = Math.floor((maxLength - DIFF_TRUNCATION_MESSAGE.length) / 2);
+  const start = diff.slice(0, halfLength);
+  const end = diff.slice(-halfLength);
+
+  return start + DIFF_TRUNCATION_MESSAGE + end;
+}
+
+/**
+ * Build validation prompt with repository context, diffs, and formatted issues
+ */
+function buildValidationPrompt(
+  batch: IndexedIssue[],
+  context: PipelineContext,
+  validationAgent: Agent,
+  instructions: string | null,
+  validationInstructions: string
+): { input: string; systemPrompt: string } {
   // Format issues as XML/Markdown with IDs
   const issuesFormatted = formatIssuesForValidation(batch);
 
@@ -386,69 +478,160 @@ async function executeValidationBatch(
     .filter(Boolean)
     .join('\n');
 
-  // Combine repository context with formatted issues
-  const inputWithContext = `${repoContext}\n\n# Issues to validate (${batch.length} total):\n\n${issuesFormatted}`;
+  // Collect unique files from issues in this batch
+  const issueFiles = new Set(batch.map((issue) => issue.file));
 
-  // Create execution context
-  const execContext: ExecutionContext = {
-    agent: validationAgent,
-    executor: executor,
-    input: inputWithContext,
-    systemPrompt: validationAgent.systemPrompt,
-    verbose: context.verbose,
-    quiet: context.quiet,
-    cwd: repoPath,
-  };
+  // Get diffs for these files
+  const relevantDiffs = context.diffs.filter((diff) => issueFiles.has(diff.file));
 
-  // Show verbose info before execution
-  if (context.verbose && !context.quiet) {
-    const needsBatching = totalBatches > 1;
-    log.plain(
-      `\nValidation prompt${needsBatching ? ` (batch ${batchIdx + 1}/${totalBatches})` : ''}:`
-    );
-    log.plain(`   Executor: ${executor.name}`);
-    log.plain(`   Issues to validate: ${batch.length}`);
-    log.plain('─'.repeat(80));
-    log.plain(inputWithContext.slice(0, 2000) + (inputWithContext.length > 2000 ? '...' : ''));
-    log.plain('─'.repeat(80));
-    log.newline();
+  // Format diffs section with truncation to prevent context overflow
+  const diffsSection =
+    relevantDiffs.length > 0
+      ? [
+          '',
+          '## Changed Files (diffs for context)',
+          'These are the actual changes being reviewed. Use these to verify issues.',
+          '',
+          ...relevantDiffs.map((diff) => {
+            const truncatedDiff = truncateDiff(diff.diff, MAX_DIFF_LENGTH);
+            return `File: ${diff.file}\n${truncatedDiff}`;
+          }),
+        ].join('\n')
+      : '';
+
+  // Combine: repo context + diffs + validation instructions + issues
+  const input = `${repoContext}${diffsSection}\n\n${validationInstructions}\n\n# Issues to validate (${batch.length} total):\n\n${issuesFormatted}`;
+
+  // Build system prompt with global instructions
+  let systemPrompt = validationAgent.systemPrompt;
+  if (instructions) {
+    systemPrompt = `${systemPrompt}\n\n${instructions}`;
   }
 
-  // Core execution logic - shared between progress and spinner paths
-  const executeCore = async (): Promise<{ success: boolean; data: number[]; error?: string }> => {
-    const result = await executorFactory.executeAgent(execContext);
-    if (!result.success) {
-      return { success: false, data: [], error: result.error };
-    }
-    const validIds = parseValidatedIds(result.output, batch);
-    return { success: true, data: validIds };
-  };
+  return { input, systemPrompt };
+}
 
-  // Use MultiProgress if available, otherwise fall back to withSpinner
-  if (progress) {
-    const startTime = Date.now();
-    try {
-      const result = await executeCore();
-      const duration = Date.now() - startTime;
+/**
+ * Log verbose validation info before execution
+ */
+function logVerboseValidationInfo(
+  context: PipelineContext,
+  executor: AgentExecutor,
+  batch: IndexedIssue[],
+  input: string,
+  batchIdx: number,
+  totalBatches: number
+): void {
+  if (!context.verbose || context.quiet) return;
 
-      if (result.success) {
-        progress.completeBatch('validation');
-      } else {
-        progress.failTask('validation');
-      }
+  const needsBatching = totalBatches > 1;
+  log.plain(
+    `\nValidation prompt${needsBatching ? ` (batch ${batchIdx + 1}/${totalBatches})` : ''}:`
+  );
+  log.plain(`   Executor: ${executor.name}`);
+  log.plain(`   Issues to validate: ${batch.length}`);
+  log.plain('─'.repeat(80));
+  log.plain(input.slice(0, 2000) + (input.length > 2000 ? '...' : ''));
+  log.plain('─'.repeat(80));
+  log.newline();
+}
 
-      return { ...result, duration };
-    } catch (error) {
-      const duration = Date.now() - startTime;
-      const errorMessage = error instanceof Error ? error.message : String(error);
+/**
+ * Execute validation using MultiProgress tracking
+ */
+async function executeWithProgress(
+  executeCore: () => Promise<{
+    success: boolean;
+    data: number[];
+    validatedIssues: ValidatedIssue[];
+    filteredIssues: FilteredIssue[];
+    error?: string;
+  }>,
+  progress: MultiProgress
+): Promise<ValidationBatchResult> {
+  const startTime = Date.now();
+  try {
+    const result = await executeCore();
+    const duration = Date.now() - startTime;
+
+    if (result.success) {
+      progress.completeBatch('validation');
+    } else {
       progress.failTask('validation');
-
-      return { success: false, data: [], error: errorMessage, duration };
     }
-  }
 
-  // Fallback to withSpinner for quiet/stream/verbose modes
-  return withSpinner(
+    return {
+      success: result.success,
+      data: result.data,
+      validatedIssues: result.validatedIssues,
+      filteredIssues: result.filteredIssues,
+      error: result.error,
+      duration,
+    };
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    progress.failTask('validation');
+
+    return {
+      success: false,
+      data: [],
+      validatedIssues: [],
+      filteredIssues: [],
+      error: errorMessage,
+      duration,
+    };
+  }
+}
+
+/**
+ * Execute validation using withSpinner (for quiet/stream/verbose modes)
+ *
+ * Note: Uses closure to bridge withSpinner's limited return type with our full result.
+ * This is safe because executeForSpinner is called exactly once by withSpinner.
+ */
+async function executeWithSpinner(
+  executeCore: () => Promise<{
+    success: boolean;
+    data: number[];
+    validatedIssues: ValidatedIssue[];
+    filteredIssues: FilteredIssue[];
+    error?: string;
+  }>,
+  context: PipelineContext,
+  batch: IndexedIssue[],
+  batchIdx: number,
+  totalBatches: number
+): Promise<ValidationBatchResult> {
+  // Define result type for clarity
+  type FullResult = {
+    success: boolean;
+    data: number[];
+    validatedIssues: ValidatedIssue[];
+    filteredIssues: FilteredIssue[];
+    error?: string;
+  };
+
+  // Store full result in closure for access after withSpinner completes
+  // This is set exactly once by executeForSpinner, called by withSpinner
+  let fullResult: FullResult | null = null;
+
+  // Wrapper for withSpinner that stores full result and returns only required fields
+  const executeForSpinner = async (): Promise<{
+    success: boolean;
+    data: number[];
+    error?: string;
+  }> => {
+    const result = await executeCore();
+    fullResult = result; // Store for later access
+    return {
+      success: result.success,
+      data: result.data,
+      error: result.error,
+    };
+  };
+
+  const spinnerResult = await withSpinner(
     {
       label: 'Validating',
       batchIndex: batchIdx,
@@ -457,16 +640,111 @@ async function executeValidationBatch(
       itemName: 'issue',
     },
     context.quiet ?? false,
-    executeCore,
-    (ids, duration) =>
+    executeForSpinner,
+    (validIds, duration) =>
       totalBatches > 1
-        ? `Validated batch ${batchIdx + 1}/${totalBatches} (${ids.length} valid, ${duration}ms)`
-        : `Validated ${ids.length} issue(s) (${duration}ms)`,
+        ? `Validated batch ${batchIdx + 1}/${totalBatches} (${validIds.length} valid, ${duration}ms)`
+        : `Validated ${validIds.length} issue(s) (${duration}ms)`,
     (error) =>
       totalBatches > 1
         ? `Validation failed (batch ${batchIdx + 1}): ${error}`
         : `Validation failed: ${error}`
   );
+
+  // Extract validated and filtered issues from stored result
+  // If withSpinner didn't execute (shouldn't happen), use empty arrays
+  const validatedIssues: ValidatedIssue[] =
+    (fullResult as FullResult | null)?.validatedIssues ?? [];
+  const filteredIssues: FilteredIssue[] = (fullResult as FullResult | null)?.filteredIssues ?? [];
+
+  // Convert to ValidationBatchResult
+  return {
+    success: spinnerResult.success,
+    data: spinnerResult.data,
+    validatedIssues,
+    filteredIssues,
+    error: spinnerResult.error,
+    duration: spinnerResult.duration,
+  };
+}
+
+/**
+ * Execute validation for a single batch of issues
+ * Returns validation result with valid IDs and filtered issues with reasons
+ * @param progress - Optional MultiProgress for progress tracking (skips withSpinner when provided)
+ */
+async function executeValidationBatch(
+  batch: IndexedIssue[],
+  batchIdx: number,
+  totalBatches: number,
+  validationAgent: Agent,
+  executor: AgentExecutor,
+  context: PipelineContext,
+  instructions: string | null,
+  validationInstructions: string,
+  progress?: MultiProgress
+): Promise<ValidationBatchResult> {
+  // Mark task as running on first batch (when using MultiProgress)
+  if (progress && batchIdx === 0) {
+    progress.startTask('validation');
+  }
+
+  // Build validation prompt
+  const { input, systemPrompt } = buildValidationPrompt(
+    batch,
+    context,
+    validationAgent,
+    instructions,
+    validationInstructions
+  );
+
+  // Create execution context
+  const execContext: ExecutionContext = {
+    agent: validationAgent,
+    executor: executor,
+    input,
+    systemPrompt,
+    verbose: context.verbose,
+    quiet: context.quiet,
+    cwd: context.metadata.repository,
+  };
+
+  // Show verbose info before execution
+  logVerboseValidationInfo(context, executor, batch, input, batchIdx, totalBatches);
+
+  // Core execution logic - returns full validation result
+  const executeCore = async (): Promise<{
+    success: boolean;
+    data: number[];
+    validatedIssues: ValidatedIssue[];
+    filteredIssues: FilteredIssue[];
+    error?: string;
+  }> => {
+    const result = await executorFactory.executeAgent(execContext);
+    if (!result.success) {
+      return {
+        success: false,
+        data: [],
+        validatedIssues: [],
+        filteredIssues: [],
+        error: result.error,
+      };
+    }
+    const parseResult = parseValidatedIds(result.output, batch);
+    return {
+      success: true,
+      data: parseResult.validatedIssues.map((i) => i.id),
+      validatedIssues: parseResult.validatedIssues,
+      filteredIssues: parseResult.filteredIssues,
+    };
+  };
+
+  // Use MultiProgress if available, otherwise fall back to withSpinner
+  if (progress) {
+    return executeWithProgress(executeCore, progress);
+  }
+
+  return executeWithSpinner(executeCore, context, batch, batchIdx, totalBatches);
 }
 
 /**
@@ -528,6 +806,12 @@ export function createValidationStage(): Stage {
       // Load validation agent from MD files (with priority: project > user > defaults)
       const validationAgent = await loadValidationAgent(context.metadata.repository);
 
+      // Load global instructions from ~/.diffray/instructions.md
+      const instructions = await loadInstructions();
+
+      // Load validation instructions from defaults/prompts/validation-instructions.md
+      const validationInstructions = await loadValidationInstructions();
+
       // Get stage settings from config
       const config = context.config!;
       const defaultExecutor = config.executor;
@@ -584,7 +868,7 @@ export function createValidationStage(): Stage {
 
       try {
         // Validate all batches
-        let batchResults: BatchResult<number[]>[];
+        let batchResults: ValidationBatchResult[];
 
         if (progress) {
           // Use MultiProgress version with concurrency limiter
@@ -599,6 +883,8 @@ export function createValidationStage(): Stage {
                   validationAgent,
                   finalExecutor,
                   context,
+                  instructions,
+                  validationInstructions,
                   progress
                 )
               )
@@ -606,7 +892,9 @@ export function createValidationStage(): Stage {
           );
         } else {
           // Fallback to withSpinner version (no progress param)
-          batchResults = await executeBatches(
+          // Cast to ValidationBatchResult[] since executeBatches returns BatchResult<number[]>[]
+          // but executeValidationBatch returns ValidationBatchResult (which extends BatchResult)
+          batchResults = (await executeBatches(
             batches,
             (batch, batchIdx, totalBatches) =>
               executeValidationBatch(
@@ -615,18 +903,21 @@ export function createValidationStage(): Stage {
                 totalBatches,
                 validationAgent,
                 finalExecutor,
-                context
-              ),
+                context,
+                instructions,
+                validationInstructions
+              ) as Promise<BatchResult<number[]>>,
             { concurrency: stageConcurrency, quiet: context.quiet }
-          );
+          )) as unknown as ValidationBatchResult[];
         }
 
         // Stop progress display
         progress?.stop();
 
         // Check for failures
-        if (!allSucceeded(batchResults)) {
-          const failures = getFailures(batchResults);
+        const hasFailures = batchResults.some((r) => !r.success);
+        if (hasFailures) {
+          const failures = batchResults.filter((r) => !r.success);
           const stageError = aggregateErrors(failures.map((f) => f.error));
           return {
             stageId: 'validation',
@@ -637,19 +928,81 @@ export function createValidationStage(): Stage {
           };
         }
 
-        // Collect all valid IDs and filter context.results
-        const validIds = new Set(batchResults.flatMap((r) => r.data));
-        filterByIds(context.results, validIds, issueIdMap);
+        // Collect all validated and filtered issues from batches
+        const allValidatedIssues = batchResults.flatMap((r) => r.validatedIssues);
+        const allFilteredIssues = batchResults.flatMap((r) => r.filteredIssues);
 
-        const validCount = validIds.size;
+        // Calculate delta and apply post-filtering
+        // Delta = validation_confidence - original_confidence
+        // Filter if: validation confidence < MIN_VALIDATION_CONFIDENCE OR delta < MAX_NEGATIVE_DELTA
+        const finalValidIds = new Set<number>();
+        const deltaFilteredIssues: FilteredIssue[] = [];
+
+        for (const validated of allValidatedIssues) {
+          const originalIssue = indexedIssues.find((i) => i.id === validated.id);
+          const originalConfidence = originalIssue?.confidence ?? 100;
+          const delta = validated.confidence - originalConfidence;
+
+          if (validated.confidence < MIN_VALIDATION_CONFIDENCE) {
+            // Filter: validation confidence too low
+            deltaFilteredIssues.push({
+              id: validated.id,
+              confidence: validated.confidence,
+              reason: `Low validation confidence (${validated.confidence}%, threshold: ${MIN_VALIDATION_CONFIDENCE}%)`,
+            });
+          } else if (delta < MAX_NEGATIVE_DELTA) {
+            // Filter: confidence dropped too much
+            deltaFilteredIssues.push({
+              id: validated.id,
+              confidence: validated.confidence,
+              reason: `Confidence delta too negative (${delta}, original: ${originalConfidence}%, validated: ${validated.confidence}%)`,
+            });
+          } else {
+            // Keep the issue
+            finalValidIds.add(validated.id);
+          }
+        }
+
+        // Merge all filtered issues
+        const mergedFilteredIssues = [...allFilteredIssues, ...deltaFilteredIssues];
+
+        // Filter context.results
+        filterByIds(context.results, finalValidIds, issueIdMap);
+
+        const validCount = finalValidIds.size;
         const invalidCount = allIssues.length - validCount;
         const duration = Date.now() - startTime;
 
         // Log final summary
         if (!context.quiet) {
-          log.done(
-            `Validation complete: ${validCount} valid, ${invalidCount} filtered out (${duration}ms)`
-          );
+          const deltaFilteredCount = deltaFilteredIssues.length;
+          const validatorFilteredCount = allFilteredIssues.length;
+
+          if (deltaFilteredCount > 0) {
+            log.done(
+              `Validation complete: ${validCount} valid, ${validatorFilteredCount} filtered by validator, ${deltaFilteredCount} filtered by delta (${duration}ms)`
+            );
+          } else {
+            log.done(
+              `Validation complete: ${validCount} valid, ${invalidCount} filtered out (${duration}ms)`
+            );
+          }
+
+          // Log filtered issues with reasons in verbose mode
+          if (context.verbose && mergedFilteredIssues.length > 0) {
+            log.newline();
+            log.plain('Filtered issues:');
+            for (const filtered of mergedFilteredIssues) {
+              const originalIssue = indexedIssues.find((i) => i.id === filtered.id);
+              if (originalIssue) {
+                log.plain(
+                  `   [${filtered.id}] ${originalIssue.file}:${originalIssue.lineStart} — ${filtered.reason}`
+                );
+              } else {
+                log.plain(`   [${filtered.id}] — ${filtered.reason}`);
+              }
+            }
+          }
         }
 
         return {
@@ -657,6 +1010,12 @@ export function createValidationStage(): Stage {
           stageName: 'Validation',
           success: true,
           duration,
+          output: {
+            validCount,
+            filteredCount: invalidCount,
+            filteredIssues: mergedFilteredIssues,
+            deltaFilteredCount: deltaFilteredIssues.length,
+          },
         };
       } catch (error) {
         // Stop progress display on error

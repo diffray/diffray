@@ -7,6 +7,7 @@ import { createLoadRulesStage } from './load-rules';
 import { createMatchRulesStage } from './match-rules';
 import { createReviewStage } from './review';
 import { createAggregateResultsStage } from './aggregate-results';
+import { createConfidenceFilterStage } from './confidence-filter';
 import { createDeduplicationStage } from './deduplication';
 import { createValidationStage } from './validation';
 
@@ -19,6 +20,7 @@ export function getStages(): Stage[] {
     createMatchRulesStage(),
     createReviewStage(),
     createAggregateResultsStage(),
+    createConfidenceFilterStage(),
     createDeduplicationStage(),
     createValidationStage(),
   ];

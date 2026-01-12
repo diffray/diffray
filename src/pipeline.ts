@@ -103,6 +103,7 @@ export class Pipeline {
       excludeRules?: string[];
       agentFilter?: string[];
       excludeAgents?: string[];
+      minConfidence?: number;
     } = {}
   ): Promise<PipelineResult> {
     const {
@@ -117,6 +118,7 @@ export class Pipeline {
       excludeRules,
       agentFilter,
       excludeAgents,
+      minConfidence,
     } = options;
 
     const startTime = Date.now();
@@ -155,6 +157,7 @@ export class Pipeline {
       excludeRules,
       agentFilter,
       excludeAgents,
+      minConfidence,
       config,
       // Pass agents from constructor (already loaded with correct executor settings)
       agents: this.agents,

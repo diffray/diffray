@@ -84,6 +84,7 @@ export function createDeduplicationStage(): Stage {
       });
 
       // Step 3: Semantic deduplication (similar descriptions in nearby lines)
+      // Simple O(n²) approach is sufficient for typical PR reviews (<100 issues)
       const semanticDeduped: Issue[] = [];
       for (const issue of locationDeduped) {
         const isDuplicate = semanticDeduped.some((existing) => areSimilarIssues(existing, issue));

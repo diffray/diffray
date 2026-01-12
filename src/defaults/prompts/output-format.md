@@ -6,36 +6,55 @@ Return your findings as a **JSON array** wrapped in `<json>...</json>` XML tags:
 [
   {
     "file": "path/to/file.ts",
-    "lineStart": 10,
-    "lineEnd": 15,
+    "lineStart": 42,
+    "lineEnd": 45,
     "severity": "critical|high|medium|low",
     "category": "security|performance|bug|quality|style|docs",
-    "shortDescription": "Brief one-line description",
-    "fullDescription": "Detailed description of the issue",
-    "suggestion": "How to fix this issue (optional)"
+    "shortDescription": "Brief one-line title (max 60 chars)",
+    "fullDescription": "Detailed explanation (1-2 phrases)",
+    "suggestion": "How to fix this issue",
+    "evidence": "The actual code snippet that proves the issue exists",
+    "confidence": 90
   }
 ]
 </json>
 
-## Field Descriptions:
+## Field Descriptions
 
-- **file**: Relative path to the file containing the issue
-- **lineStart**: Starting line number (MUST be an integer, e.g. `42`, NOT a string like `"42-45"`)
-- **lineEnd**: Ending line number (MUST be an integer, can be same as lineStart)
-- **severity**: One of: `critical`, `high`, `medium`, `low`
-- **category**: One of: `security`, `performance`, `bug`, `quality`, `style`, `docs`
-- **shortDescription**: Brief one-line summary of the issue
-- **fullDescription**: Detailed explanation of what's wrong
-- **suggestion**: (Optional) Recommendation on how to fix the issue
+- **file**: Relative path from repository root
+- **lineStart, lineEnd**: Line numbers (MUST be integers, not strings)
+- **severity**: Impact level
+  - `critical`: Security vulnerabilities, data loss, crashes
+  - `high`: Bugs, significant performance issues
+  - `medium`: Code quality, maintainability concerns
+  - `low`: Minor style, documentation improvements
+- **category**: Type of issue
+  - `security`: SQL injection, XSS, auth bypass, secrets exposure
+  - `performance`: O(n^2) algorithms, memory leaks, blocking operations
+  - `bug`: Logic errors, incorrect behavior, edge cases
+  - `quality`: Code smells, duplicated code, complex functions
+  - `style`: Formatting, naming conventions, inconsistencies
+  - `docs`: Missing or incorrect documentation
+- **shortDescription**: Brief title (max 60 chars)
+- **fullDescription**: Concise explanation (1-2 phrases)
+- **suggestion**: Actionable fix recommendation (optional)
+- **evidence**: The actual code that proves the issue exists (REQUIRED)
+- **confidence**: Certainty level 0-100 (REQUIRED, only report issues with confidence >= 80)
 
-## CRITICAL FORMAT REQUIREMENTS:
+## Quality Standards
+
+- **Only report issues with confidence >= 80%**
+- Every finding MUST have concrete evidence from the actual code
+- Skip theoretical, speculative, or "might be" issues
+- Focus on issues that would actually cause problems in production
+
+## Critical Format Requirements
 
 - **lineStart and lineEnd MUST be integers**, not strings
-- ✅ Correct: `"lineStart": 137, "lineEnd": 139`
-- ❌ Wrong: `"line": "137-139"` or `"lineStart": "137"`
-- Use the exact field names: `lineStart`, `lineEnd` (not `line`, `lineNumber`, etc.)
+- Correct: `"lineStart": 137, "lineEnd": 139`
+- Wrong: `"line": "137-139"` or `"lineStart": "137"`
 
-## Important Rules:
+## Important Rules
 
 1. **Return empty array if no issues found**: `<json>[]</json>`
 2. **Use valid JSON format** - ensure proper escaping of quotes and special characters
@@ -44,9 +63,9 @@ Return your findings as a **JSON array** wrapped in `<json>...</json>` XML tags:
    - Code that is already correct
    - Positive observations or compliments
    - "No action needed" type comments
-   - Documentation improvements that are already good
+   - Theoretical issues without concrete evidence
 
-## Example:
+## Example
 
 <json>
 [
@@ -58,7 +77,9 @@ Return your findings as a **JSON array** wrapped in `<json>...</json>` XML tags:
     "category": "bug",
     "shortDescription": "Potential null pointer dereference",
     "fullDescription": "The 'user' object may be null at this point, but is accessed without a null check. This will cause a runtime error if user is null.",
-    "suggestion": "Add a null check before accessing user properties: if (user) { ... }"
+    "suggestion": "Add a null check before accessing user properties: if (user) { ... }",
+    "evidence": "Line 43: const name = user.name; // user can be null from getUserById()",
+    "confidence": 95
   }
 ]
 </json>

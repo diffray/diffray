@@ -2,6 +2,20 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Project Overview
+
+**diffray** is a free open-source multi-agent code review CLI tool that runs specialized AI agents to review code changes. Each agent focuses on different aspects: bugs, security, performance, code style, consistency.
+
+**Key differences from diffray.ai cloud platform:**
+- CLI version requires manual rule configuration but gives full control
+- Runs locally with your choice of AI executor (Claude Code, Cursor Agent, Cerebras API)
+- Cloud platform automatically learns from team feedback and generates rules
+
+**Prerequisites:**
+- Node.js 18+
+- Git repository
+- AI CLI tool: Claude Code (default), Cursor Agent, or Cerebras API key
+
 ## Why diffray?
 
 **Why not just prompts, commands, or skills in Claude Code?**
@@ -21,29 +35,190 @@ diffray exists because we believe code review should be **systematic, not ad-hoc
 - **Reproducibility** — Same rules + same diffs = consistent reviews. No dependency on conversation state or prompt engineering skills.
 
 ## Common Commands
-- `npm run dev` - Run CLI in development mode
-- `npm test` - Run all tests
+
+### Development
+- `npm run dev` - Run CLI in development mode using tsx (`./bin/diffray.ts`)
+- `npm test` - Run all tests with Vitest
 - `npm test -- md-loader` - Run specific test file
-- `npm run build` - Build to `dist/diffray.cjs`
-- `npm run ts-check` - TypeScript type checking
-- `npm link` - Link globally for testing
+- `npm test:watch` - Run tests in watch mode
+- `npm run build` - Build to `dist/diffray.cjs` (esbuild + copy defaults/)
+- `npm run ts-check` - TypeScript type checking (tsc --noEmit)
 - `npm run lint` - ESLint
 - `npm run lint:fix` - Fix lint issues
 - `npm run format` - Format with Prettier
+- `npm run format:check` - Check formatting without changes
+
+### Linking for Local Testing
+- `npm run link:local` - Modifies package.json to use `./bin/diffray.ts` and runs `npm link`
+- `npm run link:publish` - Restores package.json to use `./dist/diffray.cjs`
+- `npm link` - Link globally using current package.json bin config
+- `npm unlink` - Unlink global package
+
+### Publishing
+- `npm run prepublishOnly` - Runs automatically before publish (build + link:publish)
+
+### Using diffray CLI
+```bash
+# Review uncommitted changes, or last commit if clean
+diffray
+
+# Review changes compared to main branch
+diffray --base main
+
+# Review last 3 commits
+diffray --base HEAD~3
+
+# Show only critical and high severity issues
+diffray --severity critical,high
+
+# Run only specific agent
+diffray --agent bug-hunter
+
+# Output as JSON (for CI/CD pipelines)
+diffray --json
+
+# Show detailed progress with streaming
+diffray --stream
+
+# List available agents and rules
+diffray agents
+diffray rules
+```
 
 ## Architecture Overview
 
 ### Pipeline Flow
-```
-Git Diffs → Pipeline → Stages → Issues
 
-Stages (sequential):
-  1. load-rules        - Load rules from MD files, resolve agents
-  2. match-rules       - Match files to rules using glob patterns
-  3. review            - Run agents in parallel via executors
-  4. aggregate-results - Collect results from all agents
-  5. deduplication     - Remove duplicate issues
-  6. validation        - LLM validates issues, filters false positives
+```mermaid
+flowchart LR
+    A[Git Diffs] --> B[Pipeline]
+    B --> C1[load-rules]
+    C1 --> C2[match-rules]
+    C2 --> C3[review]
+    C3 --> C4[aggregate-results]
+    C4 --> C5[confidence-filter]
+    C5 --> C6[deduplication]
+    C6 --> C7[validation]
+    C7 --> D[Issues]
+
+    style C1 fill:#e1f5ff
+    style C2 fill:#e1f5ff
+    style C3 fill:#fff4e1
+    style C4 fill:#e1f5ff
+    style C5 fill:#ffe1f5
+    style C6 fill:#e1f5ff
+    style C7 fill:#ffe1f5
+
+    classDef default stroke:#333,stroke-width:2px
+```
+
+**Stages (sequential):**
+1. **load-rules** - Load rules from MD files, resolve agents
+2. **match-rules** - Match files to rules using glob patterns
+3. **review** - Run agents in parallel via executors
+4. **aggregate-results** - Collect results from all agents
+5. **confidence-filter** - Filter issues below confidence threshold (default: 80)
+6. **deduplication** - Remove duplicate issues
+7. **validation** - LLM validates issues, returns keep/filter + reason
+
+### Quality Pipeline
+
+```mermaid
+flowchart TD
+    A[Review Agents Output] --> B{Has confidence field?}
+    B -->|Yes| C[Confidence Filter<br/>threshold: 80]
+    B -->|No| D[Keep for backward compatibility]
+    C -->|>= 80| E[Pass to Validation]
+    C -->|< 80| F1[Filtered Out]
+    D --> E
+
+    E --> G[Validation Agent<br/>Reads actual code<br/>Checks commits]
+
+    G --> H{Decision}
+    H -->|Keep| I[Valid Issue<br/>confidence: 0-100<br/>from validator]
+    H -->|Filter| J[Filtered Issue<br/>+ reason + confidence]
+
+    I --> K{Post-validation Check}
+    K -->|confidence >= 50<br/>AND delta >= -40| L[Final Valid Issues]
+    K -->|confidence < 50<br/>OR delta < -40| M[Delta Filtered]
+
+    J --> N[Filtered Issues<br/>with reasons]
+    M --> N
+
+    style C fill:#ffe1f5
+    style G fill:#ffe1f5
+    style L fill:#e1ffe1
+    style N fill:#ffe1e1
+```
+
+**Quality thresholds:**
+- **Confidence Filter**: Hard threshold at 80% (configurable via `--confidence`)
+- **Validation**: Binary keep/filter decision with reason
+- **Post-validation**: confidence >= 50 AND delta >= -40
+
+### Component Architecture
+
+```mermaid
+graph TB
+    subgraph CLI["CLI Layer (citty)"]
+        CLI1[bin/diffray.ts]
+        CLI2[src/cli.ts]
+    end
+
+    subgraph Core["Core Pipeline"]
+        P[Pipeline<br/>src/pipeline.ts]
+        S1[load-rules]
+        S2[match-rules]
+        S3[review]
+        S4[aggregate-results]
+        S5[confidence-filter]
+        S6[deduplication]
+        S7[validation]
+    end
+
+    subgraph Agents["Agents (MD Files)"]
+        A1[general]
+        A2[bug-hunter]
+        A3[security-scan]
+        A4[performance-check]
+        A5[validation]
+    end
+
+    subgraph Executors["Executors"]
+        E1[claude-cli]
+        E2[cursor-agent-cli]
+        E3[cerebras-api]
+    end
+
+    subgraph Config["Configuration"]
+        C1[.diffray.json<br/>project config]
+        C2[~/.diffray/config.json<br/>global config]
+        C3[~/.diffray/instructions.md]
+    end
+
+    subgraph Rules["Rules (MD Files)"]
+        R1[code-security]
+        R2[code-bugs]
+        R3[code-performance]
+    end
+
+    CLI1 --> CLI2
+    CLI2 --> P
+    P --> S1 --> S2 --> S3 --> S4 --> S5 --> S6 --> S7
+
+    S1 --> Agents
+    S1 --> Rules
+    S3 --> Agents
+    Agents --> Executors
+
+    P --> Config
+
+    style P fill:#fff4e1
+    style S3 fill:#fff4e1
+    style S5 fill:#ffe1f5
+    style S7 fill:#ffe1f5
+    style Agents fill:#e1f5ff
+    style Executors fill:#e1ffe1
 ```
 
 ### Core Components
@@ -106,12 +281,108 @@ Stages (sequential):
 - Key files: `parser.ts`, `downloader.ts`, `resolver.ts`, `lockfile.ts`, `loader.ts`
 
 ### Data Flow
+
+```mermaid
+flowchart LR
+    A[GitDiff Array] --> B[match-rules stage]
+    B --> C[MatchedRule Array<br/>files + agent + prompt]
+
+    C --> D[review stage<br/>parallel execution]
+    D --> E[AgentResult Array<br/>raw JSON output]
+
+    E --> F[aggregate-results]
+    F --> G[Issue Array<br/>parsed issues]
+
+    G --> H[confidence-filter]
+    H --> I[Issue Array<br/>confidence >= 80]
+
+    I --> J[deduplication]
+    J --> K[Issue Array<br/>unique issues]
+
+    K --> L[validation]
+    L --> M[Issue Array<br/>validated + filtered]
+
+    style C fill:#e1f5ff
+    style E fill:#fff4e1
+    style G fill:#e1ffe1
+    style I fill:#ffe1f5
+    style K fill:#e1f5ff
+    style M fill:#e1ffe1
 ```
-GitDiff[] → MatchedRule[] → AgentResult[] → Issue[]
-              (files +        (raw output)    (parsed,
-               agent +                         validated)
-               prompt)
+
+### Agent Execution (Review Stage)
+
+```mermaid
+sequenceDiagram
+    participant Pipeline
+    participant Review Stage
+    participant Agent1 as general
+    participant Agent2 as bug-hunter
+    participant Agent3 as security-scan
+    participant Executor as claude-cli
+
+    Pipeline->>Review Stage: MatchedRule[]
+    Review Stage->>Review Stage: Group by agent
+
+    par Parallel Execution (concurrency: 6)
+        Review Stage->>Agent1: Execute with files + diffs
+        Agent1->>Executor: Run LLM
+        Executor-->>Agent1: JSON issues
+        Agent1-->>Review Stage: AgentResult
+
+        Review Stage->>Agent2: Execute with files + diffs
+        Agent2->>Executor: Run LLM
+        Executor-->>Agent2: JSON issues
+        Agent2-->>Review Stage: AgentResult
+
+        Review Stage->>Agent3: Execute with files + diffs
+        Agent3->>Executor: Run LLM
+        Executor-->>Agent3: JSON issues
+        Agent3-->>Review Stage: AgentResult
+    end
+
+    Review Stage->>Pipeline: AgentResult[]
 ```
+
+### Validation Process
+
+```mermaid
+flowchart TD
+    A[Issues after deduplication] --> B[Batch issues<br/>size: 10]
+
+    B --> C[Load validation agent<br/>from .md file]
+    C --> D[Load validation instructions<br/>from prompts/]
+
+    D --> E[Build validation prompt]
+
+    E --> F[System Prompt<br/>Core principles + role]
+    E --> G[User Prompt<br/>Repo context + diffs +<br/>instructions + issues]
+
+    F --> H[Execute validation agent<br/>with claude-cli]
+    G --> H
+
+    H --> I[Parse JSON output<br/>issues + filtered_issues]
+
+    I --> J[Apply post-validation<br/>confidence checks]
+
+    J --> K{Check each issue}
+    K -->|confidence >= 50<br/>delta >= -40| L[Keep Issue]
+    K -->|confidence < 50<br/>delta < -40| M[Filter Issue]
+
+    L --> N[Final Valid Issues]
+    M --> O[Filtered Issues<br/>with reasons]
+
+    style C fill:#e1f5ff
+    style D fill:#e1f5ff
+    style H fill:#fff4e1
+    style N fill:#e1ffe1
+    style O fill:#ffe1e1
+```
+
+**Validation optimizations:**
+- System prompt: 57 lines (~1.3KB) - Core principles only
+- User prompt: Detailed instructions from `validation-instructions.md`
+- Reduces API costs via prompt caching
 
 ### Issue Structure
 ```typescript
@@ -125,6 +396,8 @@ interface Issue {
   fullDescription: string;
   suggestion?: string;
   agent: string;
+  evidence?: string;     // Concrete code proof that demonstrates the issue
+  confidence?: number;   // Certainty level 0-100 (filtered by --confidence flag)
 }
 ```
 
@@ -135,7 +408,9 @@ interface Issue {
 - `src/issue-formatter.ts` - Format issues for terminal/JSON output
 - `src/concurrency.ts` - p-limit style concurrency limiter
 - `src/batch-executor.ts` - Batch execution with spinner feedback
-- `src/defaults/prompts/output-format.md` - JSON format agents must return
+- `src/stages/confidence-filter.ts` - Filter issues by confidence threshold
+- `src/defaults/prompts/output-format.md` - JSON format agents must return (includes evidence, confidence)
+- `src/defaults/prompts/validation-instructions.md` - Detailed validation instructions (injected in user prompt)
 
 ## CLI Subcommands
 - `diffray review` - Execute code review pipeline
@@ -147,6 +422,7 @@ interface Issue {
   - `--rule <list>` - Run only specific rules (comma-separated: `code-security,code-bugs`)
   - `--exclude-rule <list>` - Exclude specific rules (comma-separated)
   - `--severity <list>` - Filter by severity (comma-separated: critical,high,medium,low)
+  - `--confidence <0-100>` - Minimum confidence threshold (default: 80). Issues below are filtered out before validation.
   - `--json` - Output results in JSON format
   - `--stream` - Show streaming (💭 thinking, 🔧 tools, ⚠ preliminary issues)
   - `--verbose` - Show raw JSON stream
@@ -244,8 +520,42 @@ diffray config edit --global     # Edit global config
 - `rules.<name>` - Rule overrides
 
 ## Development Notes
-- ES Modules with bundler moduleResolution (no `.js` extensions needed)
-- Markdown frontmatter parsed with custom regex (see `md-loader.ts`)
+
+### Build System
+- **Build tool**: esbuild (configured in `build.mjs`)
+- **Output**: Single bundled file `dist/diffray.cjs`
+- **Defaults**: `src/defaults/` copied to `dist/defaults/` during build
+- **Entry point**: `bin/diffray.ts` (dev) → `dist/diffray.cjs` (production)
+
+### Module System
+- **Type**: ES Modules (`"type": "module"` in package.json)
+- **TypeScript**: Bundler moduleResolution (no `.js` extensions needed in imports)
+- **Runtime**: tsx for development, bundled .cjs for production
+
+### Testing
+- **Framework**: Vitest
+- **Run**: `npm test` (all tests), `npm test -- <name>` (specific test)
+- **Watch mode**: `npm test:watch`
+
+### Code Quality
+- **Linting**: ESLint with TypeScript support
+- **Formatting**: Prettier
+- **Pre-commit**: Husky + lint-staged (auto-format on commit)
+- **Type checking**: `tsc --noEmit` (strict mode enabled)
+
+### Key Patterns
+- Markdown frontmatter parsed with custom regex (see `src/agents/md-loader.ts`, `src/md-loader.ts`)
 - Global instructions can be added at `~/.diffray/instructions.md`
-- Agents and rules are always loaded fresh from MD files (no caching)
-- Agents reference prompts via `../prompts/output-format.md` in their systemPrompt
+- Agents and rules are always loaded fresh from MD files (no caching except via `src/cache.ts`)
+- Agents reference prompts via relative paths like `../prompts/output-format.md`
+- Validation prompt split: system prompt (core principles) + user prompt (detailed instructions from `validation-instructions.md`)
+
+### File Structure
+- `bin/` - Entry point for development
+- `src/` - Source code
+  - `stages/` - Pipeline stages (load-rules, match-rules, review, etc.)
+  - `executors/` - LLM executors (claude-cli, cursor-agent-cli, cerebras-api)
+  - `defaults/` - Built-in agents, rules, prompts
+  - `extends/` - Git-based rule inheritance system
+- `dist/` - Built artifacts (created by `npm run build`)
+- `tests/` - Test files (co-located with source or separate)

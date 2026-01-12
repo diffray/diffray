@@ -24,6 +24,8 @@ import { agentsCmd } from './cli/commands/agents';
 import { executorsCmd } from './cli/commands/executors';
 import { rulesCmd } from './cli/commands/rules';
 import { extendsCmd } from './cli/commands/extends';
+import { validateReviewArgs } from './cli-schema';
+import { ZodError } from 'zod';
 
 function getStatusIcon(status: string): string {
   switch (status) {
@@ -54,6 +56,7 @@ async function runReview(args: {
   rule?: string;
   excludeRule?: string;
   executor?: string;
+  confidence?: number;
 }) {
   const {
     verbose = false,
@@ -69,6 +72,7 @@ async function runReview(args: {
     rule,
     excludeRule,
     executor,
+    confidence,
   } = args;
 
   // Resolve --branch to --base and --head
@@ -300,6 +304,7 @@ async function runReview(args: {
     excludeAgents,
     ruleFilter,
     excludeRules,
+    minConfidence: confidence,
   });
 
   const issuesFromResults = result.context.results.flatMap((r) => r.issues);
@@ -449,15 +454,48 @@ Examples:
       type: 'string',
       description: 'Override executor for all agents (e.g., cursor-agent-cli, claude-cli)',
     },
+    confidence: {
+      type: 'string',
+      description:
+        'Minimum confidence threshold 0-100 (default: 80). Issues below this are filtered out.',
+    },
   },
   run: async ({ args }) => {
-    await runReview({
-      ...args,
-      branch: args.branch,
-      skipValidation: args['skip-validation'],
-      excludeAgent: args['exclude-agent'],
-      excludeRule: args['exclude-rule'],
-    });
+    // Validate CLI arguments with Zod
+    try {
+      const validatedArgs = validateReviewArgs(args);
+
+      await runReview({
+        verbose: validatedArgs.verbose,
+        json: validatedArgs.json,
+        stream: validatedArgs.stream,
+        severity: validatedArgs.severity?.join(','), // Convert back to comma-separated string for runReview
+        base: validatedArgs.base,
+        head: validatedArgs.head,
+        branch: validatedArgs.branch,
+        skipValidation: validatedArgs['skip-validation'],
+        agent: validatedArgs.agent,
+        excludeAgent: validatedArgs['exclude-agent'],
+        rule: validatedArgs.rule,
+        excludeRule: validatedArgs['exclude-rule'],
+        executor: validatedArgs.executor,
+        confidence: validatedArgs.confidence,
+      });
+    } catch (error) {
+      if (error instanceof ZodError) {
+        // Extract first error message from Zod
+        const firstError = error.errors[0];
+        const message = firstError?.message || 'Invalid argument';
+
+        if (!args.json) {
+          log.error(message);
+        } else {
+          console.error(JSON.stringify({ error: message }));
+        }
+        process.exit(1);
+      }
+      throw error;
+    }
   },
 });
 
