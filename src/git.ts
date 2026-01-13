@@ -1,6 +1,7 @@
 import * as Diff from 'diff';
 import { spawn } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import type { GitDiff } from './types.js';
 import { getCached, invalidateCache, CACHE_KEYS } from './cache';
 import { log } from './logger';
@@ -485,4 +486,97 @@ export async function getCommitDiffs(
   } catch (error) {
     throw new Error(`Failed to get diffs between ${baseRef} and ${headRef}: ${error}`);
   }
+}
+
+/**
+ * Filter diffs to only include specified files
+ * @param diffs - Array of git diffs
+ * @param files - Array of file paths to include
+ * @returns Object with matched diffs and list of files without changes
+ */
+export function filterDiffsByFiles(
+  diffs: GitDiff[],
+  files: string[]
+): { matched: GitDiff[]; unmatched: string[] } {
+  const diffMap = new Map(diffs.map((d) => [d.file, d]));
+  const matched: GitDiff[] = [];
+  const unmatched: string[] = [];
+
+  for (const file of files) {
+    const diff = diffMap.get(file);
+    if (diff) {
+      matched.push(diff);
+    } else {
+      unmatched.push(file);
+    }
+  }
+
+  return { matched, unmatched };
+}
+
+/**
+ * Create synthetic diff for full file content (no git comparison)
+ * Treats entire file as "added" content for review
+ * @param filePath - Path to file (relative to cwd)
+ * @returns GitDiff with full file as diff, or null if file doesn't exist
+ */
+export async function createFullFileDiff(filePath: string): Promise<GitDiff | null> {
+  const absolutePath = resolve(process.cwd(), filePath);
+
+  try {
+    const stats = await stat(absolutePath);
+    if (!stats.isFile()) {
+      return null;
+    }
+
+    const content = await readFile(absolutePath, 'utf-8');
+
+    // Create unified diff format treating entire file as new content
+    const diff = Diff.createPatch(filePath, '', content, '/dev/null', filePath);
+
+    // Count additions from the generated diff (lines starting with '+' excluding header)
+    const additions = diff
+      .split('\n')
+      .filter((line) => line.startsWith('+') && !line.startsWith('+++')).length;
+
+    return {
+      file: filePath,
+      status: 'added',
+      diff,
+      additions,
+      deletions: 0,
+    };
+  } catch (error) {
+    log.debug(`createFullFileDiff failed for ${filePath}: ${error}`);
+    return null;
+  }
+}
+
+/**
+ * Create synthetic diffs for multiple files (full file mode)
+ * @param files - Array of file paths
+ * @returns Object with matched diffs and list of files that couldn't be read
+ */
+export async function createFullFileDiffs(
+  files: string[]
+): Promise<{ diffs: GitDiff[]; notFound: string[] }> {
+  const results = await Promise.all(
+    files.map(async (file) => ({
+      file,
+      diff: await createFullFileDiff(file),
+    }))
+  );
+
+  const diffs: GitDiff[] = [];
+  const notFound: string[] = [];
+
+  for (const { file, diff } of results) {
+    if (diff) {
+      diffs.push(diff);
+    } else {
+      notFound.push(file);
+    }
+  }
+
+  return { diffs, notFound };
 }

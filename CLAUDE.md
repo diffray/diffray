@@ -68,6 +68,13 @@ diffray review --base main
 # Review last 3 commits
 diffray review --base HEAD~3
 
+# Review specific file(s) - only git changes in these files
+diffray review --files src/auth.ts
+diffray review --files src/auth.ts,src/user.ts
+
+# Review entire file content (without git diff)
+diffray review --files src/auth.ts --full
+
 # Show only critical and high severity issues
 diffray review --severity critical,high
 
@@ -462,6 +469,8 @@ interface Issue {
   - `--base <ref>` - Base commit/branch (e.g., `main`, `HEAD~3`)
   - `--head <ref>` - Head commit/branch (default: `HEAD`)
     - When `--base` specified with no uncommitted changes, temporarily checks out `--head` ref for CLI tools, then restores original branch
+  - `--files <list>` - Review only specific files (comma-separated paths)
+  - `--full` - Review entire file content without git diff (requires `--files`)
   - `--agent <list>` - Run only specific agents (comma-separated: `bug-hunter,general`)
   - `--exclude-agent <list>` - Exclude specific agents (comma-separated)
   - `--rule <list>` - Run only specific rules (comma-separated: `code-security,code-bugs`)

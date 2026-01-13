@@ -1,6 +1,6 @@
 <table>
   <tr>
-    <td><img src="logo.svg" alt="diffray" width="120"></td>
+    <td><img src="docs/logo.svg" alt="diffray" width="120"></td>
     <td>
       <h1>diffray</h1>
       <strong>Free open-source multi-agent code review</strong>
@@ -13,7 +13,7 @@
 > **How is it different from [diffray.ai](https://diffray.ai)?** The cloud platform automatically learns from your team's review feedback and generates rules. This CLI version requires manual rule configuration but gives you full control and runs locally.
 
 <p align="center">
-  <img src="/docs/diffray.png" alt="diffray in action" width="800">
+  <img src="docs/demo.gif" alt="diffray in action" width="800">
 </p>
 
 ---
@@ -67,6 +67,13 @@ diffray review --base main
 
 # Review last 3 commits
 diffray review --base HEAD~3
+
+# Review specific file(s) - only git changes in these files
+diffray review --files src/auth.ts
+diffray review --files src/auth.ts,src/user.ts
+
+# Review entire file content (without git diff)
+diffray review --files src/auth.ts --full
 
 # Show only critical and high severity issues
 diffray review --severity critical,high
