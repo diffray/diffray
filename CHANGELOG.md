@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-01-13
+
+### Added
+
+- **`--files` flag** — Review only specific files (comma-separated paths)
+  - `diffray review --files src/auth.ts` — review changes in single file
+  - `diffray review --files src/a.ts,src/b.ts` — review multiple files
+  - `diffray review --files src/auth.ts --base main` — changes relative to main
+
+- **`--full` flag** — Review entire file content without git diff
+  - `diffray review --files src/auth.ts --full` — review whole file
+  - Requires `--files` flag, incompatible with `--base`
+
+### Changed
+
+- Refactored `runReview()` with helper functions for better maintainability
+  - `tryCheckoutToHead()` — checkout logic
+  - `getDefaultDiffs()` — uncommitted/last commit diffs
+  - `collectDiffs()` — all diff collection modes
+  - `formatResults()` — result formatting and output
+
+### Fixed
+
+- Duplicate `successCount` calculation in `formatResults()`
+
 ## [0.4.0] - 2026-01-12
 
 ### Added
@@ -163,7 +188,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Major codebase cleanup and modernization
 
-[Unreleased]: https://github.com/diffray/diffray/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/diffray/diffray/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/diffray/diffray/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/diffray/diffray/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/diffray/diffray/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/diffray/diffray/compare/v0.2.0...v0.3.1
