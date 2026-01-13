@@ -7,7 +7,7 @@ import { log } from '../logger';
 
 const execFileAsync = promisify(execFile);
 
-const SKILL_FILENAME = 'diffray.md';
+const COMMAND_FILENAME = 'diffray.md';
 
 /**
  * Check if a CLI command is available in PATH (cross-platform)
@@ -22,7 +22,7 @@ async function isCommandAvailable(command: string): Promise<boolean> {
   }
 }
 
-const SKILL_TEMPLATE = `---
+const COMMAND_TEMPLATE = `---
 description: Run AI-powered code review with diffray
 ---
 
@@ -63,6 +63,8 @@ Then run the appropriate command:
 - \`/diffray --agent security-scan\` - Run only security agent
 - \`/diffray --severity critical,high\` - Show only critical/high issues
 - \`/diffray --stream\` - Show streaming output with thinking
+- \`/diffray --executor cursor-agent-cli\` - Use Cursor Agent as executor
+- \`/diffray --executor claude-cli\` - Use Claude CLI as executor
 
 ## Output
 
@@ -92,6 +94,12 @@ function getInstallTargets(): InstallTarget[] {
       installUrl: 'https://claude.ai/code',
     },
     {
+      name: 'Cursor Agent',
+      path: join(home, '.cursor', 'commands'),
+      cliCommand: 'cursor-agent',
+      installUrl: 'https://cursor.com',
+    },
+    {
       name: 'OpenCode',
       path: join(home, '.config', 'opencode', 'commands'),
       cliCommand: 'opencode',
@@ -113,63 +121,64 @@ async function fileExists(path: string): Promise<boolean> {
 }
 
 /**
- * Install diffray skill to Claude Code and other supported tools
+ * Install /diffray command to Claude Code and other supported tools
  */
-export async function installSkill(options: { force?: boolean } = {}): Promise<void> {
+export async function installCommand(options: { force?: boolean } = {}): Promise<void> {
   const targets = getInstallTargets();
 
-  // Check which CLI tools are available
-  const availableTargets: InstallTarget[] = [];
-  for (const target of targets) {
-    if (await isCommandAvailable(target.cliCommand)) {
-      availableTargets.push(target);
-    }
-  }
+  // Check which CLI tools are available in parallel
+  const results = await Promise.all(
+    targets.map(async (target) => ({
+      target,
+      available: await isCommandAvailable(target.cliCommand),
+    }))
+  );
+  const availableTargets = results.filter((r) => r.available).map((r) => r.target);
 
   if (availableTargets.length === 0) {
     log.error('No supported CLI tools found');
     log.newline();
-    log.plain('diffray skill requires one of the following CLI tools:');
+    log.plain('/diffray command requires one of the following CLI tools:');
     log.newline();
     for (const target of targets) {
       log.plain(`  ${target.name} (${target.cliCommand})`);
       log.plain(`    Install: ${target.installUrl}`);
     }
     log.newline();
-    log.plain('After installing, run: diffray setup-skill');
+    log.plain('After installing, run: diffray setup-command');
     return;
   }
 
   let installed = 0;
 
   for (const target of availableTargets) {
-    const skillPath = join(target.path, SKILL_FILENAME);
+    const commandPath = join(target.path, COMMAND_FILENAME);
 
     // Check if already exists
-    if ((await fileExists(skillPath)) && !options.force) {
+    if ((await fileExists(commandPath)) && !options.force) {
       try {
-        const existing = await readFile(skillPath, 'utf-8');
-        if (existing === SKILL_TEMPLATE) {
+        const existing = await readFile(commandPath, 'utf-8');
+        if (existing === COMMAND_TEMPLATE) {
           log.info(`${target.name}: Already installed (up to date)`);
           continue;
         }
-        log.warn(`${target.name}: Already exists at ${skillPath}`);
+        log.warn(`${target.name}: Already exists at ${commandPath}`);
         log.plain('   Use --force to overwrite');
         continue;
       } catch (err) {
-        log.error(`${target.name}: Failed to read ${skillPath}: ${(err as Error).message}`);
+        log.error(`${target.name}: Failed to read ${commandPath}: ${(err as Error).message}`);
         continue;
       }
     }
 
-    // Create commands directory and write skill file
+    // Create commands directory and write command file
     try {
       if (!(await fileExists(target.path))) {
         await mkdir(target.path, { recursive: true });
       }
-      await writeFile(skillPath, SKILL_TEMPLATE, 'utf-8');
+      await writeFile(commandPath, COMMAND_TEMPLATE, 'utf-8');
       log.success(`${target.name}: Installed`);
-      log.plain(`   ${skillPath}`);
+      log.plain(`   ${commandPath}`);
       installed++;
     } catch (err) {
       log.error(`${target.name}: Failed to install: ${(err as Error).message}`);
@@ -184,20 +193,20 @@ export async function installSkill(options: { force?: boolean } = {}): Promise<v
 }
 
 /**
- * Uninstall diffray skill from Claude Code and other supported tools
+ * Uninstall /diffray command from Claude Code and other supported tools
  */
-export async function uninstallSkill(): Promise<void> {
+export async function uninstallCommand(): Promise<void> {
   const targets = getInstallTargets();
   let removed = 0;
 
   for (const target of targets) {
-    const skillPath = join(target.path, SKILL_FILENAME);
+    const commandPath = join(target.path, COMMAND_FILENAME);
 
-    if (await fileExists(skillPath)) {
+    if (await fileExists(commandPath)) {
       try {
-        await unlink(skillPath);
+        await unlink(commandPath);
         log.success(`${target.name}: Removed`);
-        log.plain(`   ${skillPath}`);
+        log.plain(`   ${commandPath}`);
         removed++;
       } catch (err) {
         log.error(`${target.name}: Failed to remove: ${(err as Error).message}`);
@@ -221,20 +230,28 @@ export async function showInstallStatus(): Promise<void> {
 
   log.plain('Installation Status\n');
 
-  for (const target of targets) {
-    const skillPath = join(target.path, SKILL_FILENAME);
-    const cliAvailable = await isCommandAvailable(target.cliCommand);
-    const skillExists = await fileExists(skillPath);
+  const statuses = await Promise.all(
+    targets.map(async (target) => {
+      const commandPath = join(target.path, COMMAND_FILENAME);
+      return {
+        target,
+        commandPath,
+        cliAvailable: await isCommandAvailable(target.cliCommand),
+        commandExists: await fileExists(commandPath),
+      };
+    })
+  );
 
+  for (const { target, commandPath, cliAvailable, commandExists } of statuses) {
     if (!cliAvailable) {
       log.plain(`${target.name}: CLI not found (${target.cliCommand})`);
       log.plain(`   Install: ${target.installUrl}`);
-    } else if (skillExists) {
+    } else if (commandExists) {
       log.success(`${target.name}: Installed`);
-      log.plain(`   ${skillPath}`);
+      log.plain(`   ${commandPath}`);
     } else {
-      log.warn(`${target.name}: CLI available but skill not installed`);
-      log.plain(`   Run: diffray setup-skill`);
+      log.warn(`${target.name}: CLI available but command not installed`);
+      log.plain(`   Run: diffray setup-command`);
     }
   }
 }

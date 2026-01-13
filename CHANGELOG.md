@@ -9,12 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`diffray setup-skill` command** — Install `/diffray` skill for Claude Code and OpenCode
-  - `diffray setup-skill` — Install skill to all detected CLI tools
-  - `diffray setup-skill --force` — Overwrite existing installation
-  - `diffray setup-skill status` — Show installation status for all tools
-  - `diffray setup-skill remove` — Remove skill from all tools
-  - Skill enables `/diffray` slash command in editors with interactive review mode
+- **`diffray setup-command` command** — Install `/diffray` command for Claude Code, Cursor Agent, and OpenCode
+  - `diffray setup-command` — Install command to all detected CLI tools
+  - `diffray setup-command --force` — Overwrite existing installation
+  - `diffray setup-command status` — Show installation status for all tools
+  - `diffray setup-command remove` — Remove command from all tools
+  - Command enables `/diffray` slash command in editors with interactive review mode
 
 ## [0.5.0] - 2026-01-13
 
