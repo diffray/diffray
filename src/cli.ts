@@ -27,6 +27,7 @@ import { agentsCmd } from './cli/commands/agents';
 import { executorsCmd } from './cli/commands/executors';
 import { rulesCmd } from './cli/commands/rules';
 import { extendsCmd } from './cli/commands/extends';
+import { setupSkillCmd } from './cli/commands/setup-skill';
 import { validateReviewArgs } from './cli-schema';
 import { ZodError } from 'zod';
 
@@ -666,5 +667,6 @@ export const main = defineCommand({
     executors: executorsCmd,
     rules: rulesCmd,
     extends: extendsCmd,
+    'setup-skill': setupSkillCmd,
   },
 });

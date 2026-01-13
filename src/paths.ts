@@ -7,10 +7,12 @@
  * and when installed as an npm package.
  */
 
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-// Use __dirname for CJS compatibility when bundled
-const currentDir = __dirname;
+// Use import.meta.url for ESM compatibility, fallback to __dirname for CJS bundle
+const currentDir =
+  typeof __dirname !== 'undefined' ? __dirname : dirname(fileURLToPath(import.meta.url));
 
 /**
  * Get the path to the defaults directory.

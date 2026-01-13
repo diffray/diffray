@@ -5,7 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.1] - 2026-01-13
+
+### Added
+
+- **`diffray setup-skill` command** — Install `/diffray` skill for Claude Code and OpenCode
+  - `diffray setup-skill` — Install skill to all detected CLI tools
+  - `diffray setup-skill --force` — Overwrite existing installation
+  - `diffray setup-skill status` — Show installation status for all tools
+  - `diffray setup-skill remove` — Remove skill from all tools
+  - Skill enables `/diffray` slash command in editors with interactive review mode
 
 ## [0.5.0] - 2026-01-13
 
@@ -188,7 +197,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Major codebase cleanup and modernization
 
-[Unreleased]: https://github.com/diffray/diffray/compare/v0.5.0...HEAD
+[0.5.1]: https://github.com/diffray/diffray/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/diffray/diffray/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/diffray/diffray/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/diffray/diffray/compare/v0.3.1...v0.3.2

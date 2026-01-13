@@ -493,6 +493,10 @@ interface Issue {
 - `diffray extends install --force` - Force re-clone all extends
 - `diffray extends list` - Show installed extends
 - `diffray extends remove <git-url>` - Remove an installed extend
+- `diffray setup-skill` - Install `/diffray` skill for Claude Code and OpenCode
+  - `--force, -f` - Overwrite existing installation
+  - `diffray setup-skill status` - Show installation status
+  - `diffray setup-skill remove` - Remove skill from all tools
 
 ## Technology
 - Runtime: Node.js 18+ (uses native ES modules)
