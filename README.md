@@ -48,10 +48,10 @@ npm install -g diffray
 cd your-project
 
 # Review your uncommitted changes (or last commit if working tree is clean)
-diffray
+diffray review
 
 # Or review changes between branches
-diffray --base main
+diffray review --base main
 ```
 
 That's it! diffray will analyze your changes and show any issues found.
@@ -60,25 +60,25 @@ That's it! diffray will analyze your changes and show any issues found.
 
 ```bash
 # Review uncommitted changes, or last commit if clean
-diffray
+diffray review
 
 # Review changes compared to main branch
-diffray --base main
+diffray review --base main
 
 # Review last 3 commits
-diffray --base HEAD~3
+diffray review --base HEAD~3
 
 # Show only critical and high severity issues
-diffray --severity critical,high
+diffray review --severity critical,high
 
 # Run only specific agent
-diffray --agent bug-hunter
+diffray review --agent bug-hunter
 
 # Output as JSON (for CI/CD pipelines)
-diffray --json
+diffray review --json
 
 # Show detailed progress
-diffray --stream
+diffray review --stream
 
 # List available agents and rules
 diffray agents
@@ -235,7 +235,26 @@ Supports any git URL:
 - `https://github.com/owner/repo#v1.0` — specific tag/branch
 - `git@github.com:owner/repo.git` — SSH format
 
-Then run `diffray extends install` to download. Agents/rules from extends have lower priority than local ones.
+**Extends commands:**
+
+```bash
+# Install extends from config
+diffray extends install
+
+# Install specific URL (auto-adds to config)
+diffray extends install https://github.com/owner/repo
+
+# Force re-clone all extends
+diffray extends install --force
+
+# List installed extends
+diffray extends list
+
+# Remove an extend
+diffray extends remove https://github.com/owner/repo
+```
+
+Agents/rules from extends have lower priority than local ones.
 
 ### Config commands
 
@@ -312,7 +331,7 @@ You should see `my-rules` in the list.
 **Step 4.** Run a review - your agent will now analyze your code!
 
 ```bash
-diffray
+diffray review
 ```
 
 ### Header fields explained
@@ -765,7 +784,7 @@ Your completely custom instructions here...
 diffray uses Claude AI which takes time to analyze code properly. Typical review takes 10-30 seconds. For faster (but less accurate) reviews, use:
 
 ```bash
-diffray --skip-validation
+diffray review --skip-validation
 ```
 
 ### Why didn't it find an obvious bug?
@@ -777,7 +796,7 @@ AI isn't perfect. diffray is tuned for **low false positives** (fewer wrong aler
 Yes! Use `--json` flag for machine-readable output:
 
 ```bash
-diffray --json --severity critical,high
+diffray review --json --severity critical,high
 ```
 
 Exit code is non-zero if issues are found.
@@ -808,12 +827,12 @@ jobs:
       - run: npm install -g diffray @anthropic-ai/claude-code
 
       # Option 1: Use ANTHROPIC_API_KEY (recommended for CI/CD)
-      - run: diffray --base origin/${{ github.base_ref }} --json --severity critical,high
+      - run: diffray review --base origin/${{ github.base_ref }} --json --severity critical,high
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
       # Option 2: Use CLAUDE_CODE_OAUTH_TOKEN (get via: claude setup-token)
-      # - run: diffray --base origin/${{ github.base_ref }} --json --severity critical,high
+      # - run: diffray review --base origin/${{ github.base_ref }} --json --severity critical,high
       #   env:
       #     CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 ```

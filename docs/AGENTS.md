@@ -163,10 +163,10 @@ Run faster/cheaper agents first. Consider dependencies between agents.
 
 ```bash
 # List all agents
-diffray agents list
+diffray agents
 
 # Show agent details
-diffray agents show bug-hunter
+diffray agents bug-hunter
 ```
 
 ## Troubleshooting

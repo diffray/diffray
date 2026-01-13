@@ -60,25 +60,25 @@ diffray exists because we believe code review should be **systematic, not ad-hoc
 ### Using diffray CLI
 ```bash
 # Review uncommitted changes, or last commit if clean
-diffray
+diffray review
 
 # Review changes compared to main branch
-diffray --base main
+diffray review --base main
 
 # Review last 3 commits
-diffray --base HEAD~3
+diffray review --base HEAD~3
 
 # Show only critical and high severity issues
-diffray --severity critical,high
+diffray review --severity critical,high
 
 # Run only specific agent
-diffray --agent bug-hunter
+diffray review --agent bug-hunter
 
 # Output as JSON (for CI/CD pipelines)
-diffray --json
+diffray review --json
 
 # Show detailed progress with streaming
-diffray --stream
+diffray review --stream
 
 # List available agents and rules
 diffray agents
