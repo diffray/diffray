@@ -8,6 +8,7 @@ import { log } from '../logger';
 const execFileAsync = promisify(execFile);
 
 const COMMAND_FILENAME = 'diffray.md';
+const CREATE_RULE_FILENAME = 'diffray-create-rule.md';
 
 /**
  * Check if a CLI command is available in PATH (cross-platform)
@@ -30,6 +31,13 @@ description: Run AI-powered code review with diffray
 
 You are running diffray, an AI-powered multi-agent code review tool.
 
+## Executor Detection
+
+Determine the default executor based on which editor you're running in:
+- **Claude Code** → \`claude-cli\` (default)
+- **Cursor Agent** → \`cursor-agent-cli\`
+- **OpenCode** → \`opencode-cli\`
+
 ## Mode
 
 ### If \`$ARGUMENTS\` contains options:
@@ -39,24 +47,42 @@ diffray review $ARGUMENTS
 \`\`\`
 
 ### If \`$ARGUMENTS\` is empty:
-Ask the user what to review using AskUserQuestion tool:
+Ask questions SEQUENTIALLY using AskUserQuestion (one at a time, wait for answer before asking next):
 
-**Question:** "What would you like to review?"
-**Options:**
+**Step 1:** Ask "What would you like to review?"
+Options:
 1. **Uncommitted changes** - Review current unstaged/staged changes
 2. **Last commit** - Review the most recent commit
 3. **Branch vs main** - Review all changes in current branch compared to main
 4. **Specific files** - Let me specify which files to review
 
-Then run the appropriate command:
-- Uncommitted changes: \`diffray review\`
-- Last commit: \`diffray review --base HEAD~1\`
-- Branch vs main: \`diffray review --branch .\`
-- Specific files: Ask which files, then run \`diffray review --files <files>\`
+Wait for user response.
+
+**Step 2:** Ask "Which executor should run the review?"
+Options:
+1. **This editor (Recommended)** - Use the current editor as executor (claude-cli/cursor-agent-cli/opencode-cli based on where you're running)
+2. **claude-cli** - Claude Code CLI
+3. **cursor-agent-cli** - Cursor Agent CLI
+4. **opencode-cli** - OpenCode CLI
+5. **cerebras-api** - Cerebras API (fast, requires CEREBRAS_API_KEY)
+
+Wait for user response.
+
+**Step 3:** If user chose "Specific files" in Step 1, ask "Which files to review? (comma-separated paths)"
+
+Wait for user response if needed.
+
+**Step 4:** Run the appropriate command with the chosen executor:
+- Uncommitted changes: \`diffray review --executor <executor>\`
+- Last commit: \`diffray review --base HEAD~1 --executor <executor>\`
+- Branch vs main: \`diffray review --branch . --executor <executor>\`
+- Specific files: \`diffray review --files <files> --executor <executor>\`
+
+If user chose "This editor", use the executor matching your current environment.
 
 ## Common Usage Examples
 
-- \`/diffray\` - Interactive mode (asks what to review)
+- \`/diffray\` - Interactive mode (asks what to review and which executor)
 - \`/diffray --base main\` - Compare current HEAD to main branch
 - \`/diffray --branch .\` - Review current branch vs main (auto-detect)
 - \`/diffray --files src/auth.ts\` - Review specific file
@@ -75,6 +101,152 @@ After running the command, summarize the results:
 
 If issues are found, offer to help fix them.
 `;
+
+const CREATE_RULE_TEMPLATE = `---
+description: Create a new diffray rule interactively
+---
+
+# Create Diffray Rule
+
+You are helping the user create a new diffray rule for code review.
+
+## Step 1: Gather Information
+
+Use AskUserQuestion tool to collect the following information one by one:
+
+### 1.1 Rule Name
+Ask: "What should this rule be called? (use kebab-case, e.g., input-validation)"
+
+### 1.2 Description
+Ask: "What should this rule check for? Describe in a sentence."
+
+### 1.3 Agent Selection
+First, run \`diffray agents\` to see available agents.
+Then ask: "Which agent should handle this rule?"
+Options:
+- **general** - General code quality, readability, structure
+- **bug-hunter** - Bugs, logic errors, edge cases
+- **security-scan** - Security vulnerabilities
+- **performance-check** - Performance issues
+- **consistency-check** - Code style consistency
+
+### 1.4 File Patterns
+Analyze the project structure using Glob to find common directories (src/, lib/, app/).
+Then ask: "Which files should this rule apply to?"
+Suggest patterns based on what you find, plus common ones:
+- \`**/*.ts\` - All TypeScript files
+- \`**/*.tsx\` - All React TypeScript files
+- \`src/**/*.ts\` - TypeScript in src/
+Allow custom input.
+
+### 1.5 Save Location
+Ask: "Where should I save this rule?"
+Options:
+- **Project** (.diffray/rules/) - For this project only
+- **User** (~/.diffray/rules/) - For all your projects
+
+## Step 2: Generate Rule Prompt
+
+Based on the description, generate a detailed rule prompt. Include:
+
+1. **Title** - Clear heading about what the rule checks
+2. **What to check** - Bullet list of specific things to look for
+3. **❌ Avoid** - Examples of code violations
+4. **✅ Use instead** - Examples of correct patterns
+5. **When to flag** - Situations where issues should be reported
+6. **When NOT to flag** - False positives to avoid
+
+## Step 3: Create Rule File
+
+Generate the rule as a markdown file with YAML frontmatter:
+
+\`\`\`markdown
+---
+name: <rule-name>
+description: <description>
+patterns:
+  - "<pattern1>"
+  - "<pattern2>"
+agent: <agent-name>
+---
+
+<your generated rule prompt>
+\`\`\`
+
+Save to the chosen location:
+- Project: \`.diffray/rules/<name>.md\`
+- User: \`~/.diffray/rules/<name>.md\`
+
+Create the directory if it doesn't exist.
+
+## Step 4: Verify
+
+After creating the file:
+1. Run \`diffray rules\` to confirm the rule appears in the list
+2. Run \`diffray rules <name>\` to show the rule details
+3. Tell the user they can test with: \`diffray review --rule <name>\`
+
+## Example Interaction
+
+\`\`\`
+User: /diffray-create-rule
+
+AI: I'll help you create a new diffray rule. Let me ask a few questions.
+
+AI: What should this rule be called? (use kebab-case)
+User: zod-validation
+
+AI: What should this rule check for?
+User: All user input must be validated with Zod schemas
+
+AI: Which agent should handle this rule?
+- general (recommended for validation patterns)
+- security-scan
+- bug-hunter
+User: general
+
+AI: Which files should this rule apply to?
+I found these directories: src/, lib/
+Suggestions:
+- **/*.ts (all TypeScript)
+- src/**/*.ts (src only)
+User: src/**/*.ts
+
+AI: Where should I save this rule?
+- Project (.diffray/rules/)
+- User (~/.diffray/rules/)
+User: Project
+
+AI: Creating rule...
+
+[Writes .diffray/rules/zod-validation.md]
+
+AI: ✅ Created .diffray/rules/zod-validation.md
+
+Verified with diffray rules:
+- zod-validation (●) - All user input must be validated with Zod schemas
+
+You can test it with: diffray review --rule zod-validation
+\`\`\`
+`;
+
+/**
+ * Command files to install
+ */
+interface CommandFile {
+  filename: string;
+  template: string;
+  commandName: string;
+}
+
+const COMMAND_FILES: CommandFile[] = [
+  { filename: COMMAND_FILENAME, template: COMMAND_TEMPLATE, commandName: '/diffray' },
+  {
+    filename: CREATE_RULE_FILENAME,
+    template: CREATE_RULE_TEMPLATE,
+    commandName: '/diffray-create-rule',
+  },
+];
 
 interface InstallTarget {
   name: string;
@@ -121,7 +293,7 @@ async function fileExists(path: string): Promise<boolean> {
 }
 
 /**
- * Install /diffray command to Claude Code and other supported tools
+ * Install diffray commands to Claude Code and other supported tools
  */
 export async function installCommand(options: { force?: boolean } = {}): Promise<void> {
   const targets = getInstallTargets();
@@ -138,7 +310,7 @@ export async function installCommand(options: { force?: boolean } = {}): Promise
   if (availableTargets.length === 0) {
     log.error('No supported CLI tools found');
     log.newline();
-    log.plain('/diffray command requires one of the following CLI tools:');
+    log.plain('diffray commands require one of the following CLI tools:');
     log.newline();
     for (const target of targets) {
       log.plain(`  ${target.name} (${target.cliCommand})`);
@@ -152,64 +324,81 @@ export async function installCommand(options: { force?: boolean } = {}): Promise
   let installed = 0;
 
   for (const target of availableTargets) {
-    const commandPath = join(target.path, COMMAND_FILENAME);
+    log.plain(`\n${target.name}:`);
 
-    // Check if already exists
-    if ((await fileExists(commandPath)) && !options.force) {
+    // Create commands directory if needed
+    if (!(await fileExists(target.path))) {
       try {
-        const existing = await readFile(commandPath, 'utf-8');
-        if (existing === COMMAND_TEMPLATE) {
-          log.info(`${target.name}: Already installed (up to date)`);
-          continue;
-        }
-        log.warn(`${target.name}: Already exists at ${commandPath}`);
-        log.plain('   Use --force to overwrite');
-        continue;
+        await mkdir(target.path, { recursive: true });
       } catch (err) {
-        log.error(`${target.name}: Failed to read ${commandPath}: ${(err as Error).message}`);
+        log.error(`  Failed to create directory: ${(err as Error).message}`);
         continue;
       }
     }
 
-    // Create commands directory and write command file
-    try {
-      if (!(await fileExists(target.path))) {
-        await mkdir(target.path, { recursive: true });
+    // Install each command file
+    for (const cmdFile of COMMAND_FILES) {
+      const commandPath = join(target.path, cmdFile.filename);
+
+      // Check if already exists
+      if ((await fileExists(commandPath)) && !options.force) {
+        try {
+          const existing = await readFile(commandPath, 'utf-8');
+          if (existing === cmdFile.template) {
+            log.info(`  ${cmdFile.commandName}: Already installed (up to date)`);
+            continue;
+          }
+          log.warn(`  ${cmdFile.commandName}: Already exists, use --force to overwrite`);
+          continue;
+        } catch (err) {
+          log.error(`  ${cmdFile.commandName}: Failed to read: ${(err as Error).message}`);
+          continue;
+        }
       }
-      await writeFile(commandPath, COMMAND_TEMPLATE, 'utf-8');
-      log.success(`${target.name}: Installed`);
-      log.plain(`   ${commandPath}`);
-      installed++;
-    } catch (err) {
-      log.error(`${target.name}: Failed to install: ${(err as Error).message}`);
-      continue;
+
+      // Write command file
+      try {
+        await writeFile(commandPath, cmdFile.template, 'utf-8');
+        log.success(`  ${cmdFile.commandName}: Installed`);
+        installed++;
+      } catch (err) {
+        log.error(`  ${cmdFile.commandName}: Failed to install: ${(err as Error).message}`);
+      }
     }
   }
 
   if (installed > 0) {
     log.newline();
-    log.success('Done! Type /diffray in your editor to run.');
+    const commandList = COMMAND_FILES.map((f) => f.commandName).join(', ');
+    log.success(`Done! Available commands: ${commandList}`);
   }
 }
 
 /**
- * Uninstall /diffray command from Claude Code and other supported tools
+ * Uninstall diffray commands from Claude Code and other supported tools
  */
 export async function uninstallCommand(): Promise<void> {
   const targets = getInstallTargets();
   let removed = 0;
 
   for (const target of targets) {
-    const commandPath = join(target.path, COMMAND_FILENAME);
+    let targetRemoved = 0;
 
-    if (await fileExists(commandPath)) {
-      try {
-        await unlink(commandPath);
-        log.success(`${target.name}: Removed`);
-        log.plain(`   ${commandPath}`);
-        removed++;
-      } catch (err) {
-        log.error(`${target.name}: Failed to remove: ${(err as Error).message}`);
+    for (const cmdFile of COMMAND_FILES) {
+      const commandPath = join(target.path, cmdFile.filename);
+
+      if (await fileExists(commandPath)) {
+        try {
+          await unlink(commandPath);
+          if (targetRemoved === 0) {
+            log.plain(`\n${target.name}:`);
+          }
+          log.success(`  ${cmdFile.commandName}: Removed`);
+          removed++;
+          targetRemoved++;
+        } catch (err) {
+          log.error(`  ${cmdFile.commandName}: Failed to remove: ${(err as Error).message}`);
+        }
       }
     }
   }
@@ -218,7 +407,7 @@ export async function uninstallCommand(): Promise<void> {
     log.info('No installations found');
   } else {
     log.newline();
-    log.success(`Removed ${removed} installation(s)`);
+    log.success(`Removed ${removed} command file(s)`);
   }
 }
 
@@ -230,28 +419,53 @@ export async function showInstallStatus(): Promise<void> {
 
   log.plain('Installation Status\n');
 
+  // Check CLI availability and command file existence for each target
   const statuses = await Promise.all(
     targets.map(async (target) => {
-      const commandPath = join(target.path, COMMAND_FILENAME);
+      const cliAvailable = await isCommandAvailable(target.cliCommand);
+
+      // Check each command file
+      const commandStatuses = await Promise.all(
+        COMMAND_FILES.map(async (cmdFile) => {
+          const commandPath = join(target.path, cmdFile.filename);
+          return {
+            cmdFile,
+            commandPath,
+            exists: await fileExists(commandPath),
+          };
+        })
+      );
+
       return {
         target,
-        commandPath,
-        cliAvailable: await isCommandAvailable(target.cliCommand),
-        commandExists: await fileExists(commandPath),
+        cliAvailable,
+        commandStatuses,
       };
     })
   );
 
-  for (const { target, commandPath, cliAvailable, commandExists } of statuses) {
+  for (const { target, cliAvailable, commandStatuses } of statuses) {
+    log.plain(`${target.name}:`);
+
     if (!cliAvailable) {
-      log.plain(`${target.name}: CLI not found (${target.cliCommand})`);
-      log.plain(`   Install: ${target.installUrl}`);
-    } else if (commandExists) {
-      log.success(`${target.name}: Installed`);
-      log.plain(`   ${commandPath}`);
-    } else {
-      log.warn(`${target.name}: CLI available but command not installed`);
-      log.plain(`   Run: diffray setup-command`);
+      log.plain(`  CLI not found (${target.cliCommand})`);
+      log.plain(`  Install: ${target.installUrl}`);
+      log.newline();
+      continue;
     }
+
+    for (const { cmdFile, exists } of commandStatuses) {
+      if (exists) {
+        log.success(`  ${cmdFile.commandName}: Installed`);
+      } else {
+        log.warn(`  ${cmdFile.commandName}: Not installed`);
+      }
+    }
+
+    const allInstalled = commandStatuses.every((s) => s.exists);
+    if (!allInstalled) {
+      log.plain(`  Run: diffray setup-command`);
+    }
+    log.newline();
   }
 }

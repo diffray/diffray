@@ -313,6 +313,7 @@ async function runReview(args: {
   rule?: string[];
   excludeRule?: string[];
   executor?: string;
+  model?: string;
   confidence?: number;
   files?: string[];
   full?: boolean;
@@ -331,6 +332,7 @@ async function runReview(args: {
     rule: ruleFilter,
     excludeRule: excludeRules,
     executor,
+    model,
     confidence,
     files: filesFilter,
     full = false,
@@ -474,8 +476,12 @@ async function runReview(args: {
       log.success(`Loaded ${enabledExecutors.length} executor(s)`);
     }
 
-    // Load agents with executor override if provided (applies correct settings)
-    const agents = await loadAgents({ projectPath, executorOverride: executor });
+    // Load agents with executor and model overrides if provided (applies correct settings)
+    const agents = await loadAgents({
+      projectPath,
+      executorOverride: executor,
+      modelOverride: model,
+    });
 
     if (executor && !json) {
       log.info(`Using executor: ${executor}`);
@@ -510,6 +516,7 @@ async function runReview(args: {
       ruleFilter,
       excludeRules,
       minConfidence: confidence,
+      modelOverride: model,
     });
 
     formatResults({
@@ -544,7 +551,9 @@ Examples:
   diffray review --base main            Compare HEAD to main
   diffray review --agent general        Run only general agent
   diffray review --severity critical,high
-  diffray review --stream               Show thinking and tool usage`,
+  diffray review --stream               Show thinking and tool usage
+  diffray review --executor opencode-cli  Use OpenCode executor
+  diffray review --model sonnet           Override model for all agents`,
   },
   args: {
     stream: {
@@ -598,6 +607,11 @@ Examples:
     executor: {
       type: 'string',
       description: 'Override executor for all agents (e.g., cursor-agent-cli, claude-cli)',
+    },
+    model: {
+      type: 'string',
+      description:
+        'Override model for all agents (e.g., sonnet, opencode/gpt-5-nano, claude-3-5-sonnet)',
     },
     confidence: {
       type: 'string',

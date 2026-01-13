@@ -770,6 +770,7 @@ async function executeValidationBatch(
     verbose: context.verbose,
     quiet: context.quiet,
     cwd: context.metadata.repository,
+    modelOverride: context.modelOverride,
   };
 
   // Show verbose info before execution
@@ -869,7 +870,7 @@ export function createValidationStage(): Stage {
       // Get stage settings from config
       const config = context.config!;
       const defaultExecutor = config.executor;
-      const executorConfig = config.executors[defaultExecutor] || {};
+      const executorConfig = config.executors?.[defaultExecutor] || {};
       const stageSettings = executorConfig.validation || {};
       const batchSize = stageSettings.batchSize ?? VALIDATION_BATCH_SIZE;
       const stageConcurrency = stageSettings.concurrency ?? context.concurrency;

@@ -81,6 +81,14 @@ diffray review --severity critical,high
 # Run only specific agent
 diffray review --agent bug-hunter
 
+# Use specific executor
+diffray review --executor opencode-cli
+
+# Override model for all agents
+diffray review --model sonnet
+diffray review --model opencode/gpt-5-nano
+diffray review --model claude-3-5-sonnet
+
 # Output as JSON (for CI/CD pipelines)
 diffray review --json
 

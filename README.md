@@ -132,6 +132,29 @@ diffray config init
 diffray review --executor cursor-agent-cli
 ```
 
+### OpenCode CLI (alternative)
+
+Modern AI CLI with support for multiple model providers:
+
+```bash
+# Install
+curl https://opencode.ai/install -fsS | bash
+
+# Authorize (opens browser)
+opencode auth login
+```
+
+Then switch diffray to use it:
+
+```bash
+# Via config
+diffray config init
+# Edit .diffray.json and add: "executor": "opencode-cli"
+
+# Or per-run
+diffray review --executor opencode-cli
+```
+
 Costs depend on your AI provider's pricing. Claude Code uses your Anthropic account or Claude Pro subscription. Cursor Agent uses your Cursor subscription.
 
 **Tips to reduce costs:**
@@ -220,10 +243,118 @@ diffray works out of the box with sensible defaults. Create `.diffray.json` in y
 | `extends` | Load agents/rules from git repos (e.g., `["https://github.com/owner/repo#v1.0"]`) |
 | `excludePatterns` | Glob patterns for files to skip |
 | `concurrency` | Max parallel agents (1-10, default: **6**). Stage-specific settings override this. |
-| `executor` | Which executor to use (`claude-cli`, `cursor-agent-cli`) |
+| `executor` | Which executor to use (`claude-cli`, `cursor-agent-cli`, `opencode-cli`) |
 | `agents.<name>` | Override agent settings (`enabled`, `model`, `timeout`) |
 | `rules.<name>` | Override rule settings (`enabled`, `agent`) |
 | `executors.<name>.<stage>` | Per-executor, per-stage settings (`model`, `timeout`, `concurrency`, `batchSize`) |
+
+### Model Override Options
+
+#### Available Models by Executor
+
+| Executor | Available Models | Examples |
+|----------|------------------|----------|
+| **claude-cli** | `haiku`, `sonnet`, `opus` (aliases) | `sonnet`, `claude-sonnet-4-5-20250929` |
+| **cursor-agent-cli** | `auto`, `gpt-5.2`, `opus-4.5`, `sonnet-4.5`, `gemini-3-pro`, `grok` | `cursor-agent --model opus-4.5` |
+| **opencode-cli** | `opencode/gpt-5-nano`, `opencode/grok-code`, `opencode/glm-4.7-free` | `opencode --model opencode/gpt-5-nano` |
+
+#### Override Hierarchy (highest to lowest priority)
+
+1. **CLI flags** - `diffray review --model sonnet`
+2. **Project config** - `.diffray.json`
+3. **Global config** - `~/.diffray/config.json`
+4. **Defaults** - Built-in defaults
+
+#### Configuration Examples
+
+**Global config** (`~/.diffray/config.json`):
+```json
+{
+  "executor": "claude-cli",
+  "executors": {
+    "claude-cli": {
+      "review": { "model": "sonnet", "concurrency": 6 },
+      "validation": { "model": "opus", "timeout": 180 }  // Use most powerful model for validation
+    },
+    "cursor-agent-cli": {
+      "review": { "model": "opus-4.5" },
+      "validation": { "model": "opus-4.5" }  // Use same powerful model for validation
+    },
+    "opencode-cli": {
+      "review": { "model": "opencode/gpt-5-nano" },
+      "validation": { "model": "opencode/grok-code" }
+    }
+  },
+  "agents": {
+    "security-scan": { "model": "sonnet" },
+    "bug-hunter": { "model": "opus" },
+    "performance-check": { "model": "haiku" }
+  }
+}
+```
+
+**Project config** (`.diffray.json`):
+```json
+{
+  "executors": {
+    "claude-cli": {
+      "review": { "model": "haiku" },
+      "validation": { "model": "sonnet" }
+    }
+  },
+  "agents": {
+    "security-scan": { "model": "sonnet", "timeout": 180 },
+    "consistency-check": { "enabled": false }
+  }
+}
+```
+
+#### CLI Override Examples
+
+```bash
+# Override model for all agents
+diffray review --model sonnet
+
+# Use different executor with specific model
+diffray review --executor cursor-agent-cli --model opus-4.5
+
+# Fast review with Haiku for all agents
+diffray review --model haiku --skip-validation
+
+# Security scan with Opus (most thorough)
+diffray review --agent security-scan --model opus
+
+# Mixed: use OpenCode with specific model
+diffray review --executor opencode-cli --model opencode/gpt-5-nano
+
+# Override for validation stage only (via config)
+# See configuration examples above
+```
+
+#### Practical Use Cases
+
+| Scenario | Recommended Configuration | Reason |
+|----------|-------------------------|--------|
+| **Everyday development** | `haiku` for review, `sonnet` for validation | Fast feedback, reasonable quality |
+| **Security review** | `opus` for security-scan agent | Most thorough analysis for vulnerabilities |
+| **Performance testing** | `sonnet` for performance-check agent | Good balance of speed and accuracy |
+| **Large PR review** | `haiku` + `--skip-validation` | Process large changesets quickly |
+| **Critical production** | `opus` for all agents | Maximum thoroughness for critical code |
+| **Validation phase** | Always use most powerful model | Prevents false positives, ensures quality |
+| **Cost optimization** | `cursor-agent-cli` with `gpt-5.2` | Often more cost-effective than Claude |
+| **Multi-model strategy** | Mix models per agent type | Optimize quality/speed per use case |
+
+#### Performance vs Quality Trade-offs
+
+| Model | Speed | Quality | Cost | Best For |
+|-------|-------|---------|------|----------|
+| `haiku` | ⚡ Fast | Good | 💰 Low | Daily development, large PRs |
+| `sonnet` | 🚀 Moderate | Excellent | 💸💰 Medium | Most use cases, balanced approach |
+| `opus` | 🚀 Fast | Outstanding | 💸💸💸 High | **Optimal balance of speed and quality**, security, critical bugs |
+| `gpt-5.2` | 🚀 Fast | Very Good | 💸 Medium | General purpose, cost-effective |
+| `opencode/gpt-5-nano` | ⚡ Fast | Good | 💰 Low | Quick reviews, prototyping |
+
+> **💡 Pro Tip:** For the **validation phase**, always use the most powerful model available (e.g., `opus` or `gpt-5.2`). Validation filters false positives and ensures only real issues are reported, making it worth the extra cost.
 
 ### Extends
 

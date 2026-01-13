@@ -89,6 +89,7 @@ export const ReviewArgsSchema = z
     head: z.string().optional(),
     branch: z.string().optional(),
     executor: z.string().optional(),
+    model: z.string().optional(),
 
     // Boolean flags
     stream: z.boolean().optional(),

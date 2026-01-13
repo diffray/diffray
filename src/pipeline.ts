@@ -104,6 +104,7 @@ export class Pipeline {
       agentFilter?: string[];
       excludeAgents?: string[];
       minConfidence?: number;
+      modelOverride?: string;
     } = {}
   ): Promise<PipelineResult> {
     const {
@@ -119,6 +120,7 @@ export class Pipeline {
       agentFilter,
       excludeAgents,
       minConfidence,
+      modelOverride,
     } = options;
 
     const startTime = Date.now();
@@ -152,15 +154,14 @@ export class Pipeline {
       quiet,
       stream,
       concurrency,
-      skipValidation,
       ruleFilter,
       excludeRules,
       agentFilter,
       excludeAgents,
+      skipValidation,
       minConfidence,
+      modelOverride,
       config,
-      // Pass agents from constructor (already loaded with correct executor settings)
-      agents: this.agents,
     };
 
     // Execute stages

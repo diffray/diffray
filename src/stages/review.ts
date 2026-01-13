@@ -191,6 +191,7 @@ async function executeBatch(
       quiet: context.quiet,
       stream: context.stream,
       cwd: context.metadata.repository,
+      modelOverride: context.modelOverride,
     };
 
     // Core execution logic - shared between progress and spinner paths

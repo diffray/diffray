@@ -6,7 +6,12 @@ import type { AgentExecutor, ExecutionContext, ExecutionResult } from '../types'
 import type { Executor } from './types';
 import { loadConfig } from '../config';
 import { cerebrasExecutor } from './api';
-import { claudeCliExecutor, testCliExecutor, cursorAgentCliExecutor } from './cli';
+import {
+  claudeCliExecutor,
+  testCliExecutor,
+  cursorAgentCliExecutor,
+  opencodeCliExecutor,
+} from './cli';
 
 // Re-export types
 export type { Executor, APIConfig, CLIConfig, StreamOptions } from './types';
@@ -17,6 +22,7 @@ const executors = new Map<string, Executor>([
   ['cerebras-api', cerebrasExecutor],
   ['claude-cli', claudeCliExecutor],
   ['cursor-agent-cli', cursorAgentCliExecutor],
+  ['opencode-cli', opencodeCliExecutor],
   ['test-cli', testCliExecutor],
 ]);
 
@@ -47,6 +53,15 @@ export async function executeAgent(ctx: ExecutionContext): Promise<ExecutionResu
 
   if (!executor) {
     throw new Error(`No executor found: ${ctx.executor.name}`);
+  }
+
+  // Apply model override if provided
+  if (ctx.modelOverride && executor.applySettings) {
+    const overriddenExecutor = executor.applySettings({ model: ctx.modelOverride });
+    return executor.execute({
+      ...ctx,
+      executor: overriddenExecutor,
+    });
   }
 
   return executor.execute(ctx);

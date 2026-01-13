@@ -141,6 +141,7 @@ export interface ExecutionContext {
   quiet?: boolean; // Suppress output (for JSON mode)
   stream?: boolean; // Show streaming (thinking, preliminary issues)
   cwd?: string; // Working directory for CLI executors
+  modelOverride?: string; // Model override from CLI
 }
 
 /**
@@ -184,6 +185,8 @@ export interface PipelineContext {
   excludeAgents?: string[]; // Exclude these agents (by name)
   // Confidence filtering
   minConfidence?: number; // Minimum confidence threshold (default: 80)
+  // Model override for all agents
+  modelOverride?: string; // Override model for all agents
   // Config (loaded once in pipeline)
   config?: import('./config').Config;
 }

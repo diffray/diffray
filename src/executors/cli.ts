@@ -11,6 +11,7 @@ import { loadOutputFormat, buildPrompt, buildUserPrompt, createResult } from './
 import { trackProcess, ensureSigintHandler } from './process';
 import { streamClaudeCli } from './claude-cli';
 import { streamCursorAgentCli } from './cursor-agent-cli';
+import { streamOpenCodeCli } from './opencode-cli';
 
 // Settings schema for CLI executors
 export const CLISettingsSchema = z.object({
@@ -25,6 +26,11 @@ const CLAUDE_CLI_DEFAULTS = {
 
 const CURSOR_AGENT_DEFAULTS = {
   model: 'opus-4.5',
+  timeout: 120,
+} as const;
+
+const OPENCODE_DEFAULTS = {
+  model: 'opencode/gpt-5-nano',
   timeout: 120,
 } as const;
 
@@ -133,6 +139,39 @@ async function executeCursorAgentCli(
   cmdArgs.push(fullPrompt);
 
   const output = await streamCursorAgentCli(cmdArgs, config.env || {}, effectiveTimeout, {
+    stream: ctx.stream ?? false,
+    verbose: ctx.verbose ?? false,
+    agentName: ctx.agent.name,
+    cwd: ctx.cwd,
+  });
+
+  return createResult(ctx, true, output, undefined, Date.now() - start, ctx.input);
+}
+
+/**
+ * Execute OpenCode CLI with streaming
+ * Note: OpenCode CLI uses 'run' command and different argument structure
+ */
+async function executeOpenCodeCli(
+  config: CLIConfig,
+  ctx: ExecutionContext,
+  format: string
+): Promise<ExecutionResult> {
+  const start = Date.now();
+  // Combine system prompt and format with user prompt for OpenCode
+  const fullPrompt = buildPrompt(ctx.systemPrompt, ctx.input, format);
+
+  const effectiveModel = getEffectiveModel(ctx, config.model);
+  const effectiveTimeout = getEffectiveTimeout(ctx, config.timeout);
+
+  let cmdArgs = [config.command, 'run', '--format', 'json'];
+  if (effectiveModel) {
+    cmdArgs = [...cmdArgs, '--model', effectiveModel];
+  }
+  // Add the prompt as argument
+  cmdArgs.push(fullPrompt);
+
+  const output = await streamOpenCodeCli(cmdArgs, config.env || {}, effectiveTimeout, {
     stream: ctx.stream ?? false,
     verbose: ctx.verbose ?? false,
     agentName: ctx.agent.name,
@@ -282,6 +321,10 @@ export function createCLIExecutor(config: CLIConfig): Executor {
           return await executeCursorAgentCli(config, ctx, format);
         }
 
+        if (config.name === 'opencode-cli') {
+          return await executeOpenCodeCli(config, ctx, format);
+        }
+
         return await executeGenericCli(config, ctx, format);
       } catch (e) {
         return createResult(
@@ -360,4 +403,16 @@ export const cursorAgentCliExecutor = createCLIExecutor({
   model: CURSOR_AGENT_DEFAULTS.model,
   useStdin: false,
   installCommand: 'curl https://cursor.com/install -fsS | bash',
+});
+
+export const opencodeCliExecutor = createCLIExecutor({
+  name: 'opencode-cli',
+  description: 'Execute via OpenCode CLI',
+  command: 'opencode',
+  args: ['run', '--format', 'json'],
+  timeout: OPENCODE_DEFAULTS.timeout,
+  model: OPENCODE_DEFAULTS.model,
+  useStdin: false,
+  systemPromptArg: undefined, // OpenCode uses different approach
+  installCommand: 'curl https://opencode.ai/install -fsS | bash',
 });

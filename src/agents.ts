@@ -9,6 +9,7 @@ import { loadConfig } from './config.js';
 export interface LoadAgentsOptions {
   projectPath?: string;
   executorOverride?: string;
+  modelOverride?: string;
 }
 
 /**
@@ -45,6 +46,9 @@ export async function loadAgents(options?: LoadAgentsOptions | string): Promise<
   const currentExecutor = opts.executorOverride || config.executor;
   const executorConfig = config.executors[currentExecutor] || {};
 
+  // Apply model override if provided
+  const modelOverride = opts.modelOverride;
+
   return agents
     .map((agent) => {
       const stage = agent.stage || 'review';
@@ -60,9 +64,10 @@ export async function loadAgents(options?: LoadAgentsOptions | string): Promise<
         executorSettings: {
           ...stageSettings,
           ...agent.executorSettings,
-          // Apply model/timeout from override
+          // Apply overrides: agent config first, then CLI (highest priority)
           ...(agentOverride.model && { model: agentOverride.model }),
           ...(agentOverride.timeout && { timeout: agentOverride.timeout }),
+          ...(modelOverride && { model: modelOverride }),
         },
         // Apply enabled override (defaults to agent.enabled if not specified)
         enabled: agentOverride.enabled ?? agent.enabled,

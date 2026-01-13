@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-01-13
+
+### Added
+
+- **OpenCode CLI executor** — New executor for OpenCode AI CLI
+  - `diffray review --executor opencode-cli` — Use OpenCode as executor
+  - Supports all OpenCode models (e.g., `opencode/gpt-5-nano`, `opencode/grok-code`)
+  - Streaming support with `--stream` flag
+  - Installation: `curl https://opencode.ai/install -fsS | bash`
+
+- **`--model` flag** — Override model for all agents from CLI
+  - `diffray review --model sonnet` — Use Sonnet for all agents
+  - `diffray review --model opus` — Use Opus for thorough review
+  - `diffray review --executor opencode-cli --model opencode/gpt-5-nano` — Combine executor and model
+  - Overrides both agent settings and config file settings (highest priority)
+
+- **Model override documentation** — Comprehensive guide in README
+  - Available models per executor
+  - Override hierarchy (CLI > project config > global config > defaults)
+  - Configuration examples for global and project configs
+  - Practical use cases and recommendations
+  - Performance vs quality trade-offs table
+
+### Changed
+
+- **Improved setup-command** — Better multi-file support
+  - Now installs multiple command files per CLI tool
+  - Cleaner status display with per-command file status
+  - Better removal message ("command file(s)" vs "installation(s)")
+
+- **Simplified model override logic** — Cleaner code in `executeAgent()`
+  - Removed unnecessary wrapper object in model override path
+  - Direct executor call with overridden settings
+  - Same behavior, less complexity
+
+### Fixed
+
+- Optional chaining for `config.executors` access in validation stage
+
 ## [0.5.1] - 2026-01-13
 
 ### Added
@@ -197,6 +236,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Major codebase cleanup and modernization
 
+[0.5.2]: https://github.com/diffray/diffray/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/diffray/diffray/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/diffray/diffray/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/diffray/diffray/compare/v0.3.2...v0.4.0

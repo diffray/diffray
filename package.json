@@ -1,6 +1,6 @@
 {
   "name": "diffray",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "AI-powered code review CLI for git changes",
   "author": "Ilya Strelov <strelov1@gmail.com>",
   "license": "MIT",
