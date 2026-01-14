@@ -553,6 +553,7 @@ Examples:
   diffray review --severity critical,high
   diffray review --stream               Show thinking and tool usage
   diffray review --executor opencode-cli  Use OpenCode executor
+  diffray review --executor codex-cli     Use Codex executor
   diffray review --model sonnet           Override model for all agents`,
   },
   args: {
@@ -606,7 +607,8 @@ Examples:
     },
     executor: {
       type: 'string',
-      description: 'Override executor for all agents (e.g., cursor-agent-cli, claude-cli)',
+      description:
+        'Override executor for all agents (e.g., codex-cli, cursor-agent-cli, claude-cli)',
     },
     model: {
       type: 'string',

@@ -11,6 +11,7 @@ import {
   testCliExecutor,
   cursorAgentCliExecutor,
   opencodeCliExecutor,
+  codexCliExecutor,
 } from './cli';
 
 // Re-export types
@@ -23,6 +24,7 @@ const executors = new Map<string, Executor>([
   ['claude-cli', claudeCliExecutor],
   ['cursor-agent-cli', cursorAgentCliExecutor],
   ['opencode-cli', opencodeCliExecutor],
+  ['codex-cli', codexCliExecutor],
   ['test-cli', testCliExecutor],
 ]);
 

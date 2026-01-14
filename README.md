@@ -8,7 +8,7 @@
   </tr>
 </table>
 
-> **What is this?** A CLI tool that runs multiple AI agents to review your code changes. Each agent specializes in different aspects: bugs, security, performance, code style. Works with [Claude Code](https://github.com/anthropics/claude-code) or [Cursor Agent](https://cursor.com).
+> **What is this?** A CLI tool that runs multiple AI agents to review your code changes. Each agent specializes in different aspects: bugs, security, performance, code style. Works with [Claude Code](https://github.com/anthropics/claude-code), [Cursor Agent](https://cursor.com), OpenCode, or Codex CLI.
 >
 > **How is it different from [diffray.ai](https://diffray.ai)?** The cloud platform automatically learns from your team's review feedback and generates rules. This CLI version requires manual rule configuration but gives you full control and runs locally.
 
@@ -155,7 +155,27 @@ diffray config init
 diffray review --executor opencode-cli
 ```
 
-Costs depend on your AI provider's pricing. Claude Code uses your Anthropic account or Claude Pro subscription. Cursor Agent uses your Cursor subscription.
+Costs depend on your AI provider's pricing. Claude Code uses your Anthropic account or Claude Pro subscription. Cursor Agent uses your Cursor subscription. Codex CLI uses your OpenAI account.
+
+### Codex CLI (alternative)
+
+OpenAI Codex CLI for local code review:
+
+```bash
+# Install
+npm install -g @openai/codex
+```
+
+Then switch diffray to use it:
+
+```bash
+# Via config
+diffray config init
+# Edit .diffray.json and add: "executor": "codex-cli"
+
+# Or per-run
+diffray review --executor codex-cli
+```
 
 **Tips to reduce costs:**
 - Review smaller changesets more frequently

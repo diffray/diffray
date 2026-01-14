@@ -32,6 +32,14 @@ describe('Executors', () => {
       expect(executor?.type).toBe('cli');
     });
 
+    test('should return codex-cli executor', () => {
+      const executor = getExecutor('codex-cli');
+
+      expect(executor).toBeDefined();
+      expect(executor?.name).toBe('codex-cli');
+      expect(executor?.type).toBe('cli');
+    });
+
     test('should return test-cli executor', () => {
       const executor = getExecutor('test-cli');
 
@@ -56,6 +64,7 @@ describe('Executors', () => {
       const names = executors.map((e) => e.name);
       expect(names).toContain('cerebras-api');
       expect(names).toContain('claude-cli');
+      expect(names).toContain('codex-cli');
       expect(names).toContain('test-cli');
     });
 

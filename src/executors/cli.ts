@@ -34,6 +34,10 @@ const OPENCODE_DEFAULTS = {
   timeout: 120,
 } as const;
 
+const CODEX_DEFAULTS = {
+  timeout: 120,
+} as const;
+
 /**
  * Get effective timeout from context executor or config
  */
@@ -415,4 +419,14 @@ export const opencodeCliExecutor = createCLIExecutor({
   useStdin: false,
   systemPromptArg: undefined, // OpenCode uses different approach
   installCommand: 'curl https://opencode.ai/install -fsS | bash',
+});
+
+export const codexCliExecutor = createCLIExecutor({
+  name: 'codex-cli',
+  description: 'Execute via Codex CLI',
+  command: 'codex',
+  args: ['exec'],
+  timeout: CODEX_DEFAULTS.timeout,
+  useStdin: false,
+  installCommand: 'npm install -g @openai/codex',
 });

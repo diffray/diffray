@@ -1,5 +1,156 @@
 # Architecture: Agents + Executors
 
+## Overview
+
+```mermaid
+flowchart TB
+    subgraph CLI["CLI Layer"]
+        C1[bin/diffray.ts]
+        C2[src/cli.ts]
+    end
+
+    subgraph Pipeline["Core Pipeline"]
+        P[Pipeline<br/>src/pipeline.ts]
+        S1[load-rules]
+        S2[match-rules]
+        S3[review]
+        S4[aggregate-results]
+        S5[deduplication]
+        S6[validation]
+    end
+
+    subgraph Agents["Agents"]
+        A1[general]
+        A2[bug-hunter]
+        A3[security-scan]
+        A4[performance-check]
+        A5[validation]
+    end
+
+    subgraph Executors["Executors"]
+        E1[claude-cli]
+        E2[cursor-agent-cli]
+        E3[opencode-cli]
+        E4[cerebras-api]
+    end
+
+    subgraph Config["Configuration"]
+        CFG1[.diffray.json]
+        CFG2[~/.diffray/config.json]
+        CFG3[~/.diffray/instructions.md]
+    end
+
+    C1 --> C2
+    C2 --> P
+    P --> S1 --> S2 --> S3 --> S4 --> S5 --> S6
+
+    S1 --> Agents
+    S3 --> Agents
+    Agents --> Executors
+
+    P --> Config
+
+    style P fill:#fff4e1
+    style S3 fill:#fff4e1
+    style Agents fill:#e1f5ff
+    style Executors fill:#e1ffe1
+```
+
+## Pipeline Flow
+
+```mermaid
+flowchart LR
+    A[Git Diffs] --> B[Pipeline]
+    B --> C1[load-rules]
+    C1 --> C2[match-rules]
+    C2 --> C3[review]
+    C3 --> C4[aggregate-results]
+    C4 --> C5[deduplication]
+    C5 --> C6[validation]
+    C6 --> D[Issues]
+
+    style C1 fill:#e1f5ff
+    style C2 fill:#e1f5ff
+    style C3 fill:#fff4e1
+    style C4 fill:#e1f5ff
+    style C5 fill:#e1f5ff
+    style C6 fill:#ffe1f5
+```
+
+### Data Flow Between Stages
+
+```mermaid
+flowchart TB
+    subgraph Input["Input"]
+        Diffs[GitDiff[]]
+    end
+
+    subgraph Stage1["Stage 1: load-rules"]
+        S1_IN["context.diffs"]
+        S1_OUT["context.rules<br/>Rule[]"]
+    end
+
+    subgraph Stage2["Stage 2: match-rules"]
+        S2_IN["context.rules<br/>context.diffs"]
+        S2_OUT["context.matchedRules<br/>MatchedRule[]"]
+    end
+
+    subgraph Stage3["Stage 3: review"]
+        S3_IN["context.matchedRules"]
+        S3_OUT["context.results<br/>AgentResult[]"]
+    end
+
+    subgraph Stage4["Stage 4: aggregate-results"]
+        S4_IN["context.results"]
+        S4_OUT["context.issues<br/>Issue[]"]
+    end
+
+    subgraph Stage5["Stage 5: deduplication"]
+        S5_IN["context.issues"]
+        S5_OUT["context.issues<br/>Issue[] (unique)"]
+    end
+
+    subgraph Stage6["Stage 6: validation"]
+        S6_IN["context.issues"]
+        S6_OUT["context.issues<br/>context.filteredIssues"]
+    end
+
+    Diffs --> S1_IN
+    S1_OUT --> S2_IN
+    S2_OUT --> S3_IN
+    S3_OUT --> S4_IN
+    S4_OUT --> S5_IN
+    S5_OUT --> S6_IN
+
+    style Stage3 fill:#fff4e1
+    style Stage6 fill:#ffe1f5
+
+    classDef dataFont font-size:10px
+```
+
+**Stage Data Structures:**
+
+| Stage | Input | Output | Description |
+|-------|-------|--------|-------------|
+| `load-rules` | `context.diffs` | `context.rules: Rule[]` | Loads all rules from MD files |
+| `match-rules` | `context.rules, context.diffs` | `context.matchedRules: MatchedRule[]` | Matches files to rules via glob patterns |
+| `review` | `context.matchedRules` | `context.results: AgentResult[]` | Runs agents, returns raw JSON |
+| `aggregate-results` | `context.results` | `context.issues: Issue[]` | Parses JSON into Issue objects |
+| `deduplication` | `context.issues` | `context.issues: Issue[]` | Removes duplicate issues |
+| `validation` | `context.issues` | `context.issues, context.filteredIssues` | Validates issues, splits valid/filtered |
+
+**PipelineContext Structure:**
+```typescript
+interface PipelineContext {
+  diffs: GitDiff[];              // Git diff data
+  rules?: Rule[];                // Loaded rules
+  matchedRules?: MatchedRule[];  // Matched rules
+  results?: AgentResult[];       // Agent execution results
+  issues?: Issue[];              // Parsed issues
+  filteredIssues?: Issue[];      // Filtered by validation
+}
+```
+
 ## Concept
 
 Two-level separation:
@@ -24,6 +175,47 @@ Two-level separation:
 ### 4. Flexibility
 - Can change Executor for Agent without changing the prompt
 - Can A/B test different Executors for the same task
+
+## Agent & Executor Relationship
+
+```mermaid
+flowchart LR
+    subgraph AgentLayer["Agent Layer (WHAT)"]
+        A1[Agent: bug-hunter<br/>systemPrompt<br/>instructions]
+        A2[Agent: security-scan<br/>systemPrompt<br/>instructions]
+        A3[Agent: general<br/>systemPrompt<br/>instructions]
+    end
+
+    subgraph ExecutorLayer["Executor Layer (HOW)"]
+        E1[claude-cli<br/>CLI tool]
+        E2[cursor-agent-cli<br/>CLI tool]
+        E3[cerebras-api<br/>HTTP API]
+    end
+
+    subgraph Execution["Execution"]
+        X1[Agent + Executor<br/>= Execution Context]
+    end
+
+    A1 --> X1
+    A2 --> X1
+    A3 --> X1
+
+    E1 --> X1
+    E2 --> X1
+    E3 --> X1
+
+    X1 --> R[AgentResult<br/>JSON output]
+
+    style AgentLayer fill:#e1f5ff
+    style ExecutorLayer fill:#e1ffe1
+    style Execution fill:#fff4e1
+```
+
+**Key Points:**
+- Agent = WHAT to do (prompts, instructions, system prompt)
+- Executor = HOW to do it (CLI tool, API, protocol)
+- One agent can use different executors (flexibility)
+- One executor can run different agents (reusability)
 
 ## Examples
 
@@ -74,6 +266,9 @@ Executes Agents via CLI commands.
 
 **Supported CLI tools:**
 - `claude` - Claude Code CLI
+- `codex` - Codex CLI
+- `cursor-agent` - Cursor Agent CLI
+- `opencode` - OpenCode CLI
 - Custom CLI tools
 
 ### 2. LLM API Executor
@@ -178,6 +373,40 @@ configCache      // src/config.ts - config cache
 - Plugin architecture requiring sandboxed execution
 
 ## Usage
+
+### Agent Execution Flow
+
+```mermaid
+sequenceDiagram
+    participant Pipeline
+    participant Review as Review Stage
+    participant A1 as general
+    participant A2 as bug-hunter
+    participant A3 as security
+    participant Executor as claude-cli
+
+    Pipeline->>Review: MatchedRule[]
+    Review->>Review: Group by agent
+
+    par Parallel Execution
+        Review->>A1: files + diffs
+        A1->>Executor: Run LLM
+        Executor-->>A1: JSON issues
+        A1-->>Review: AgentResult
+
+        Review->>A2: files + diffs
+        A2->>Executor: Run LLM
+        Executor-->>A2: JSON issues
+        A2-->>Review: AgentResult
+
+        Review->>A3: files + diffs
+        A3->>Executor: Run LLM
+        Executor-->>A3: JSON issues
+        A3-->>Review: AgentResult
+    end
+
+    Review->>Pipeline: AgentResult[]
+```
 
 ### Registering Executors
 
@@ -297,6 +526,38 @@ export function createGitHubPublishStage(): Stage {
 ## CLI Command Architecture
 
 The CLI uses a **command registry pattern** to avoid monolithic switch statements:
+
+```mermaid
+flowchart TB
+    subgraph CLI["CLI Entry Point"]
+        ENTRY[bin/diffray.ts]
+        MAIN[src/cli.ts<br/>main review command]
+    end
+
+    subgraph Registry["Command Registry"]
+        REG[CommandRegistry]
+    end
+
+    subgraph Commands["Command Modules"]
+        C1[agents.ts]
+        C2[config.ts]
+        C3[executors.ts]
+        C4[rules.ts]
+    end
+
+    ENTRY --> MAIN
+    MAIN --> REG
+    REG --> C1
+    REG --> C2
+    REG --> C3
+    REG --> C4
+
+    style MAIN fill:#fff4e1
+    style REG fill:#e1f5ff
+    style Commands fill:#e1ffe1
+```
+
+**Design Benefits:**
 
 ```
 src/
@@ -451,6 +712,7 @@ src/
 │   ├── cli.ts            # CLI executor base
 │   ├── claude-cli.ts     # Claude Code CLI executor
 │   ├── cursor-agent-cli.ts # Cursor Agent CLI executor
+│   ├── opencode-cli.ts   # OpenCode CLI executor
 │   ├── process.ts        # Process utilities
 │   └── utils.ts          # Shared utilities
 ├── cli/

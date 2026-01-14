@@ -34,7 +34,7 @@ You are a bug detection specialist focused on identifying logic errors.
 |-------|-------------|
 | `name` | Unique identifier (lowercase with dashes: `bug-hunter`) |
 | `description` | Short description of what the agent does |
-| `executor` | Which executor runs this agent (`claude-cli`, `cerebras-api`) |
+| `executor` | Which executor runs this agent (`claude-cli`, `codex-cli`, `cursor-agent-cli`, `opencode-cli`, `cerebras-api`) |
 
 ### Optional Fields
 

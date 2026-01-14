@@ -113,6 +113,7 @@ export async function streamOpenCodeCli(
 
   return new Promise((resolve, reject) => {
     let finalResult = '';
+    let rawOutput = '';
     let buffer = '';
     const stderrChunks: Buffer[] = [];
 
@@ -137,12 +138,11 @@ export async function streamOpenCodeCli(
             }
           }
         } catch {
-          // Not JSON - might be plain text output
-          if (opts.verbose) {
-            log.plain(`📡 ${line}`);
+          // Accumulate non-JSON output as fallback
+          rawOutput += line + '\n';
+          if (process.env.DEBUG) {
+            log.plain(`📡 Accumulating non-JSON output: ${line.slice(0, 100)}`);
           }
-          // Accumulate non-JSON output as result
-          finalResult += line + '\n';
         }
       }
     });
@@ -158,8 +158,8 @@ export async function streamOpenCodeCli(
             finalResult = message.result;
           }
         } catch {
-          // Not JSON - add to result
-          finalResult += buffer;
+          // Accumulate remaining non-JSON buffer
+          rawOutput += buffer;
         }
       }
 
@@ -177,6 +177,14 @@ export async function streamOpenCodeCli(
       if (exitCode !== 0) {
         reject(new Error(`Exit code ${exitCode}: ${stderrText}`));
         return;
+      }
+
+      // Use raw output as fallback if no JSON result
+      if (!finalResult.trim() && rawOutput.trim()) {
+        if (process.env.DEBUG) {
+          log.plain(`⚠ Using raw non-JSON output as result (${rawOutput.length} bytes)`);
+        }
+        finalResult = rawOutput;
       }
 
       resolve(finalResult.trim());
