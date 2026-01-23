@@ -869,7 +869,29 @@ export function createValidationStage(): Stage {
 
       // Get stage settings from config
       const config = context.config!;
-      const defaultExecutor = config.executor;
+
+      // Check if workflow is configured for validation stage
+      const workflowRuns = config.workflows?.validation;
+      let validationExecutor = config.executor;
+      let validationModel = context.modelOverride;
+
+      if (workflowRuns && workflowRuns.length > 0) {
+        // Use only the last workflow run for validation (unlike review stage which runs all)
+        // Validation is run once to filter issues, not to generate more issues per executor
+        const lastWorkflowRun = workflowRuns[workflowRuns.length - 1];
+        if (lastWorkflowRun) {
+          validationExecutor = lastWorkflowRun.executor || config.executor;
+          validationModel = lastWorkflowRun.model || context.modelOverride;
+        }
+
+        if (!context.quiet) {
+          log.info(
+            `Workflow mode: using ${validationExecutor}${validationModel ? ` (model: ${validationModel})` : ''} for validation`
+          );
+        }
+      }
+
+      const defaultExecutor = validationExecutor;
       const executorConfig = config.executors?.[defaultExecutor] || {};
       const stageSettings = executorConfig.validation || {};
       const batchSize = stageSettings.batchSize ?? VALIDATION_BATCH_SIZE;
@@ -885,6 +907,11 @@ export function createValidationStage(): Stage {
           duration: Date.now() - startTime,
         };
       }
+
+      // Override model if specified in workflow
+      const validationContext = validationModel
+        ? { ...context, modelOverride: validationModel }
+        : context;
 
       // Split into batches if needed
       const batches = chunk(indexedIssues, batchSize);
@@ -937,7 +964,7 @@ export function createValidationStage(): Stage {
                 batches.length,
                 validationAgent,
                 finalExecutor,
-                context,
+                validationContext,
                 instructions,
                 validationInstructions,
                 progress // undefined when no progress

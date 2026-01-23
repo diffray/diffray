@@ -106,6 +106,42 @@ async function prepareBatchInfo(
   return agentBatchInfo;
 }
 
+/**
+ * Execute all batches for a single agent and return aggregated result
+ */
+async function executeAgentBatches(
+  agent: Agent,
+  executor: NonNullable<ReturnType<typeof executorFactory.get>>,
+  batchInfo: BatchInfo,
+  context: PipelineContext,
+  limit: ReturnType<typeof createLimiter>,
+  progress?: MultiProgress,
+  taskNameOverride?: string
+): Promise<AgentResult> {
+  const { batches, systemPrompt, fileToRule } = batchInfo;
+  const systemTokens = estimateTokens(systemPrompt);
+
+  const batchResults = await Promise.all(
+    batches.map((batch) =>
+      executeBatch(
+        batch,
+        batches,
+        agent,
+        executor,
+        systemPrompt,
+        systemTokens,
+        fileToRule,
+        context,
+        limit,
+        progress,
+        taskNameOverride
+      )
+    )
+  );
+
+  return aggregateBatchResults(batchResults, agent, batches);
+}
+
 async function executeBatch(
   batch: ReturnType<typeof batchDiffs>[0],
   batches: ReturnType<typeof batchDiffs>,
@@ -116,12 +152,16 @@ async function executeBatch(
   fileToRule: Map<string, string>,
   context: PipelineContext,
   limit: ReturnType<typeof createLimiter>,
-  progress?: MultiProgress
+  progress?: MultiProgress,
+  taskNameOverride?: string
 ): Promise<AgentBatchResult> {
   return limit(async () => {
+    // Compute taskName once for all progress updates
+    const taskName = taskNameOverride || agent.name;
+
     // Mark task as running on first batch
     if (batch.batchIndex === 0) {
-      progress?.startTask(agent.name);
+      progress?.startTask(taskName);
     }
 
     // Prepare batch input with repository context
@@ -214,16 +254,16 @@ async function executeBatch(
         const duration = Date.now() - startTime;
 
         if (result.success) {
-          progress.completeBatch(agent.name);
+          progress.completeBatch(taskName);
         } else {
-          progress.failTask(agent.name);
+          progress.failTask(taskName);
         }
 
         return { ...result, duration };
       } catch (error) {
         const duration = Date.now() - startTime;
         const errorMessage = error instanceof Error ? error.message : String(error);
-        progress.failTask(agent.name);
+        progress.failTask(taskName);
 
         return { success: false, data: [], error: errorMessage, duration };
       }
@@ -352,21 +392,54 @@ export function createReviewStage(): Stage {
       const useMultiProgress = !context.quiet && !context.stream && !context.verbose;
       const progress = useMultiProgress ? new MultiProgress() : undefined;
 
+      // Check if workflow is configured for review stage
+      const workflowRuns = config.workflows?.review;
+
       // Add tasks to progress with file/rule counts for ETA
       if (progress) {
-        for (const agent of agentsToExecute) {
-          const info = agentBatchInfo.get(agent.name);
-          if (info) {
-            const rulesStr = info.ruleNames.slice(0, 3).join(', ');
-            const detail = `${info.files} files | ${rulesStr}${info.rules > 3 ? '...' : ''}`;
-            progress.addTask(
-              agent.name,
-              agent.name,
-              info.batches.length,
-              info.files,
-              info.rules,
-              detail
-            );
+        if (workflowRuns && workflowRuns.length > 0) {
+          // Workflow mode: add tasks for each agent × executor combination
+          for (const agent of agentsToExecute) {
+            const info = agentBatchInfo.get(agent.name);
+            if (info) {
+              for (const [idx, workflowRun] of workflowRuns.entries()) {
+                const workflowExecutor = workflowRun.executor || config.executor;
+                const workflowModel = workflowRun.model;
+
+                // Create task name with executor and model info
+                const taskName = `${agent.name} (${workflowExecutor}${workflowModel ? `/${workflowModel}` : ''})`;
+                const taskId = `${agent.name}-${idx}`;
+
+                const rulesStr = info.ruleNames.slice(0, 3).join(', ');
+                const detail = `${info.files} files | ${rulesStr}${info.rules > 3 ? '...' : ''}`;
+
+                progress.addTask(
+                  taskId,
+                  taskName,
+                  info.batches.length,
+                  info.files,
+                  info.rules,
+                  detail
+                );
+              }
+            }
+          }
+        } else {
+          // Standard mode: add one task per agent
+          for (const agent of agentsToExecute) {
+            const info = agentBatchInfo.get(agent.name);
+            if (info) {
+              const rulesStr = info.ruleNames.slice(0, 3).join(', ');
+              const detail = `${info.files} files | ${rulesStr}${info.rules > 3 ? '...' : ''}`;
+              progress.addTask(
+                agent.name,
+                agent.name,
+                info.batches.length,
+                info.files,
+                info.rules,
+                detail
+              );
+            }
           }
         }
         progress.start();
@@ -375,79 +448,143 @@ export function createReviewStage(): Stage {
       // Execute all Agents in parallel (only those with batch info)
       let results: (AgentResult | null)[];
       try {
-        results = await Promise.all(
-          agentsToExecute.map(async (agent) => {
-            try {
-              // Get executor
-              const executorName = agent.executor || config.executor;
-              const executor = executorFactory.get(executorName);
-              if (!executor) {
-                if (!context.quiet) {
-                  log.warn(`Executor not found: ${executorName}`);
-                }
-                return null;
-              }
+        if (workflowRuns && workflowRuns.length > 0) {
+          // Multi-executor workflow mode: execute all agents with each workflow configuration
+          if (!context.quiet) {
+            log.info(
+              `Workflow mode: ${agentsToExecute.length} agent${agentsToExecute.length !== 1 ? 's' : ''} × ${workflowRuns.length} run${workflowRuns.length !== 1 ? 's' : ''} = ${agentsToExecute.length * workflowRuns.length} executions`
+            );
+          }
 
-              // Get pre-calculated batch info (guaranteed to exist for agentsToExecute)
-              const batchInfo = agentBatchInfo.get(agent.name)!;
-              const { batches, systemPrompt } = batchInfo;
+          const allResults: (AgentResult | null)[] = [];
 
-              const systemTokens = estimateTokens(systemPrompt);
+          for (const [idx, workflowRun] of workflowRuns.entries()) {
+            const workflowExecutor = workflowRun.executor || config.executor;
+            const workflowModel = workflowRun.model;
 
-              // Log detailed batch information only in verbose mode (summary already shown upfront)
-              if (!context.quiet && context.verbose) {
-                batches.forEach((batch) => {
-                  log.plain(`  ${formatBatchInfo(batch, true)}`);
-                });
-              }
-
-              // Execute batches with concurrency limit
-              const batchResults = await Promise.all(
-                batches.map((batch) =>
-                  executeBatch(
-                    batch,
-                    batches,
-                    agent,
-                    executor,
-                    systemPrompt,
-                    systemTokens,
-                    batchInfo.fileToRule,
-                    context,
-                    limit,
-                    progress
-                  )
-                )
-              );
-
-              // Aggregate batch results
-              const agentResult = aggregateBatchResults(batchResults, agent, batches);
-
-              // Add all issues to context
-              context.issues.push(...agentResult.issues);
-              context.results.push(agentResult);
-
-              return agentResult;
-            } catch (error) {
-              const errorMessage = error instanceof Error ? error.message : String(error);
+            // Validate executor exists
+            const executorObj = executorFactory.get(workflowExecutor);
+            if (!executorObj) {
               if (!context.quiet) {
-                log.error(`${agent.name}: ${errorMessage}`);
+                log.error(`Workflow executor not found: ${workflowExecutor}`);
               }
-
-              const agentResult: AgentResult = {
-                agent: agent.name,
-                executor: agent.executor || 'unknown',
-                success: false,
-                output: '',
-                error: errorMessage,
-                duration: 0,
-                issues: [],
-              };
-
-              context.results.push(agentResult);
-              return agentResult;
+              continue;
             }
-          })
-        );
+
+            // Log workflow run details
+            if (!context.quiet) {
+              log.info(
+                `  Workflow run ${idx + 1}/${workflowRuns.length}: ${workflowExecutor}${workflowModel ? ` (model: ${workflowModel})` : ''}`
+              );
+            }
+
+            // Execute all agents with this workflow configuration
+            const workflowResults = await Promise.all(
+              agentsToExecute.map(async (agent) => {
+                try {
+                  const batchInfo = agentBatchInfo.get(agent.name)!;
+                  const workflowContext = {
+                    ...context,
+                    modelOverride: workflowModel || context.modelOverride,
+                  };
+                  const taskNameOverride = `${agent.name}-${idx}`;
+
+                  const agentResult = await executeAgentBatches(
+                    agent,
+                    executorObj,
+                    batchInfo,
+                    workflowContext,
+                    limit,
+                    progress,
+                    taskNameOverride
+                  );
+
+                  context.issues.push(...agentResult.issues);
+                  context.results.push(agentResult);
+                  return agentResult;
+                } catch (error) {
+                  const errorMessage = error instanceof Error ? error.message : String(error);
+                  if (!context.quiet) {
+                    log.error(`${agent.name} (workflow: ${workflowExecutor}): ${errorMessage}`);
+                  }
+
+                  const agentResult: AgentResult = {
+                    agent: agent.name,
+                    executor: workflowExecutor,
+                    success: false,
+                    output: '',
+                    error: errorMessage,
+                    duration: 0,
+                    issues: [],
+                  };
+
+                  context.results.push(agentResult);
+                  return agentResult;
+                }
+              })
+            );
+
+            allResults.push(...workflowResults);
+          }
+
+          results = allResults;
+        } else {
+          // Standard mode: execute each agent once with its configured executor
+          results = await Promise.all(
+            agentsToExecute.map(async (agent) => {
+              try {
+                const executorName = agent.executor || config.executor;
+                const executor = executorFactory.get(executorName);
+                if (!executor) {
+                  if (!context.quiet) {
+                    log.warn(`Executor not found: ${executorName}`);
+                  }
+                  return null;
+                }
+
+                const batchInfo = agentBatchInfo.get(agent.name)!;
+
+                // Log detailed batch information only in verbose mode
+                if (!context.quiet && context.verbose) {
+                  batchInfo.batches.forEach((batch) => {
+                    log.plain(`  ${formatBatchInfo(batch, true)}`);
+                  });
+                }
+
+                const agentResult = await executeAgentBatches(
+                  agent,
+                  executor,
+                  batchInfo,
+                  context,
+                  limit,
+                  progress
+                );
+
+                context.issues.push(...agentResult.issues);
+                context.results.push(agentResult);
+                return agentResult;
+              } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                if (!context.quiet) {
+                  log.error(`${agent.name}: ${errorMessage}`);
+                }
+
+                const agentResult: AgentResult = {
+                  agent: agent.name,
+                  executor: agent.executor || 'unknown',
+                  success: false,
+                  output: '',
+                  error: errorMessage,
+                  duration: 0,
+                  issues: [],
+                };
+
+                context.results.push(agentResult);
+                return agentResult;
+              }
+            })
+          );
+        }
       } finally {
         // Stop progress display (guaranteed cleanup)
         progress?.stop();
