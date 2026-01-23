@@ -448,7 +448,7 @@ export class MultiProgress {
   /**
    * Format progress bar from 0-1 progress value
    */
-  private formatProgressBar(progress: number, width: number = 12): string {
+  private formatProgressBar(progress: number, width: number = 40): string {
     const filled = Math.round(progress * width);
     const empty = width - filled;
     return '█'.repeat(filled) + '░'.repeat(empty);
@@ -470,8 +470,8 @@ export class MultiProgress {
       const id = this.taskOrder[i]!;
       const task = this.tasks.get(id);
       if (!task) continue;
-      const line = this.formatTaskLine(task, i + 1, total);
-      lines.push(line);
+      const taskLines = this.formatTaskLine(task, i + 1, total);
+      lines.push(...taskLines);
     }
 
     // Write all lines
@@ -483,15 +483,11 @@ export class MultiProgress {
   }
 
   /**
-   * Format a single task line
+   * Format a single task line (returns 2 lines: progress + detail)
    */
-  private formatTaskLine(task: ProgressTask, index: number, total: number): string {
+  private formatTaskLine(task: ProgressTask, index: number, total: number): string[] {
     const indexStr = `[${index}/${total}]`.padEnd(7);
-    const maxLabelWidth = 18;
-    const labelStr =
-      task.label.length > maxLabelWidth
-        ? task.label.slice(0, maxLabelWidth - 1) + '…'
-        : task.label.padEnd(maxLabelWidth);
+    // No label width limit - let it take full width
 
     // Progress bar with status
     let barColor: string;
@@ -534,10 +530,17 @@ export class MultiProgress {
       timeStr = `${sec}s`;
     }
 
-    // Build final line - compact format with separator
-    const detailStr = task.detail ? `${colors.dim}| ${task.detail}${colors.reset}` : '';
+    // Line 1: Task label with details (only if running or done)
+    const detailStr =
+      task.detail && task.status !== 'pending'
+        ? ` ${colors.dim}| ${task.detail}${colors.reset}`
+        : '';
+    const line1 = `  ${colors.dim}${indexStr}${colors.reset} ${task.label}${detailStr}`;
 
-    return `  ${colors.dim}${indexStr}${colors.reset} ${labelStr} ${progressStr} ${timeStr.padEnd(6)} ${detailStr}`;
+    // Line 2: Progress bar and time only - indented to align with line 1
+    const line2 = `         ${progressStr} ${timeStr.padEnd(6)}`;
+
+    return [line1, line2];
   }
 
   /**

@@ -577,6 +577,31 @@ diffray config edit --global     # Edit global config
 - `concurrency` - Parallel executions (1-10)
 - `batchSize` - Items per batch (validation only, 1-50)
 
+**Workflows** (`workflows.<stage>`):
+Run agents multiple times with different executors/models.
+
+**Example workflow config** (`.diffray.json`):
+```json
+{
+  "workflows": {
+    "review": [
+      {"executor": "claude-cli", "model": "sonnet"},
+      {"executor": "claude-cli", "model": "opus"},
+      {"executor": "opencode-cli", "model": "gpt-5-nano"}
+    ],
+    "validation": [
+      {"executor": "claude-cli", "model": "opus"}
+    ]
+  }
+}
+```
+
+This will:
+- Run each review agent 3 times (once with sonnet, once with opus, once with opencode)
+- Collect all issues from all runs
+- Run validation once with opus (uses last workflow run)
+- Deduplicate and validate all issues
+
 **Key settings:**
 - `extends` - Git URLs to load agents/rules from (e.g., `["https://github.com/owner/repo#v1.0"]`)
 - `executor` - Active executor (`claude-cli`, `cursor-agent-cli`)

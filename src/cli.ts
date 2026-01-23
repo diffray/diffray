@@ -47,6 +47,18 @@ function getStatusIcon(status: string): string {
 }
 
 /**
+ * Restore original branch if checked out temporarily
+ */
+async function restoreOriginalBranch(originalRef: string | null, json: boolean): Promise<void> {
+  if (originalRef) {
+    await checkoutRef(originalRef);
+    if (!json) {
+      log.info(`Restored to ${originalRef}`);
+    }
+  }
+}
+
+/**
  * Try to checkout to head ref for full file access.
  * Returns originalRef if checkout happened, null otherwise.
  */
@@ -167,13 +179,7 @@ async function collectDiffs(options: {
 
     if (matched.length === 0) {
       log.success('No changes to review for specified files');
-      // Restore branch if we checked out before returning
-      if (originalRef) {
-        await checkoutRef(originalRef);
-        if (!json) {
-          log.info(`Restored to ${originalRef}`);
-        }
-      }
+      await restoreOriginalBranch(originalRef, json);
       return null;
     }
 
@@ -191,13 +197,7 @@ async function collectDiffs(options: {
 
     if (diffs.length === 0) {
       log.success('No changes between commits');
-      // Restore branch if we checked out before returning
-      if (originalRef) {
-        await checkoutRef(originalRef);
-        if (!json) {
-          log.info(`Restored to ${originalRef}`);
-        }
-      }
+      await restoreOriginalBranch(originalRef, json);
       return null;
     }
 
@@ -527,12 +527,7 @@ async function runReview(args: {
     });
   } finally {
     // Always restore original branch if we checked out
-    if (originalRef) {
-      await checkoutRef(originalRef);
-      if (!json) {
-        log.info(`Restored to ${originalRef}`);
-      }
-    }
+    await restoreOriginalBranch(originalRef, json);
   }
 }
 

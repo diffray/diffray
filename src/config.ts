@@ -4,6 +4,18 @@ import { homedir } from 'os';
 import { readFile, writeFile, mkdir, access } from 'node:fs/promises';
 import { getCached, invalidateCache, CACHE_KEYS } from './cache';
 
+// Schema for a single workflow run configuration
+const WorkflowRunSchema = z.object({
+  executor: z.string().optional(),
+  model: z.string().optional(),
+});
+
+// Schema for workflows configuration
+const WorkflowsSchema = z.object({
+  review: z.array(WorkflowRunSchema).optional(),
+  validation: z.array(WorkflowRunSchema).optional(),
+});
+
 // Schema for stage settings within an executor
 const StageSettingsSchema = z.object({
   model: z.string().optional(),
@@ -55,6 +67,7 @@ export const ConfigSchema = z.object({
   executors: z.record(z.string(), ExecutorSettingsSchema).default({}),
   agents: z.record(z.string(), AgentOverrideSchema).default({}),
   rules: z.record(z.string(), RuleOverrideSchema).default({}),
+  workflows: WorkflowsSchema.optional(),
   output: z
     .object({
       colorize: z.boolean().default(true),
@@ -65,6 +78,8 @@ export const ConfigSchema = z.object({
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
+export type WorkflowRun = z.infer<typeof WorkflowRunSchema>;
+export type Workflows = z.infer<typeof WorkflowsSchema>;
 
 // Global config paths
 const GLOBAL_CONFIG_DIR = join(homedir(), '.diffray');
@@ -121,6 +136,7 @@ function mergeConfigs(global: Config, project: Partial<Config>): Config {
       : global.executors,
     agents: project.agents ? deepMergeOverrides(global.agents, project.agents) : global.agents,
     rules: project.rules ? deepMergeOverrides(global.rules, project.rules) : global.rules,
+    workflows: project.workflows ?? global.workflows,
     output: project.output ? { ...global.output, ...project.output } : global.output,
   };
 }
