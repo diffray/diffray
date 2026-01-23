@@ -49,4 +49,6 @@ export interface StreamOptions {
   verbose: boolean;
   agentName?: string;
   cwd?: string;
+  /** Input to send via stdin (avoids Windows command line length limits) */
+  stdinInput?: string;
 }

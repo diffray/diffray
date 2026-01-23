@@ -2,7 +2,7 @@
  * Claude CLI Executor - streaming JSON parsing for Claude Code CLI
  */
 
-import { spawn } from 'node:child_process';
+import spawn from 'cross-spawn';
 import type { StreamOptions } from './types';
 import { log } from '../logger';
 import { parseIssues } from '../issue-parser';
@@ -102,11 +102,17 @@ export async function streamClaudeCli(
 
   const [command, ...args] = cmdArgs;
   const proc = spawn(command!, args, {
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: [opts.stdinInput ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     env: { ...process.env, ...env },
     cwd: opts.cwd,
   });
   trackProcess(proc);
+
+  // Send prompt via stdin to avoid Windows command line length limits
+  if (opts.stdinInput && proc.stdin) {
+    proc.stdin.write(opts.stdinInput);
+    proc.stdin.end();
+  }
 
   const timeoutMs = timeout * 1000;
   const timer = setTimeout(() => gracefulKillSync(proc, 2000), timeoutMs);

@@ -2,7 +2,7 @@
  * OpenCode Executor - streaming JSON parsing for OpenCode CLI
  */
 
-import { spawn } from 'node:child_process';
+import spawn from 'cross-spawn';
 import type { StreamOptions } from './types';
 import { log } from '../logger';
 import { parseIssues } from '../issue-parser';
@@ -102,11 +102,17 @@ export async function streamOpenCodeCli(
 
   const [command, ...args] = cmdArgs;
   const proc = spawn(command!, args, {
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: [opts.stdinInput ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     env: { ...process.env, ...env },
     cwd: opts.cwd,
   });
   trackProcess(proc);
+
+  // Send prompt via stdin to avoid Windows command line length limits
+  if (opts.stdinInput && proc.stdin) {
+    proc.stdin.write(opts.stdinInput);
+    proc.stdin.end();
+  }
 
   const timeoutMs = timeout * 1000;
   const timer = setTimeout(() => gracefulKillSync(proc, 2000), timeoutMs);
@@ -179,15 +185,26 @@ export async function streamOpenCodeCli(
         return;
       }
 
-      // Use raw output as fallback if no JSON result
-      if (!finalResult.trim() && rawOutput.trim()) {
-        if (process.env.DEBUG) {
-          log.plain(`⚠ Using raw non-JSON output as result (${rawOutput.length} bytes)`);
+      // Preserve any non-JSON output (e.g., CLI logs before JSON result)
+      const trimmedFinal = finalResult.trim();
+      const trimmedRaw = rawOutput.trim();
+
+      let combinedResult = trimmedFinal;
+      if (trimmedRaw) {
+        if (!trimmedFinal) {
+          if (process.env.DEBUG) {
+            log.plain(`⚠ Using raw non-JSON output as result (${trimmedRaw.length} bytes)`);
+          }
+          combinedResult = trimmedRaw;
+        } else {
+          if (process.env.DEBUG) {
+            log.plain(`📡 Preserving non-JSON output before result (${trimmedRaw.length} bytes)`);
+          }
+          combinedResult = `${trimmedRaw}\n${trimmedFinal}`;
         }
-        finalResult = rawOutput;
       }
 
-      resolve(finalResult.trim());
+      resolve(combinedResult);
     });
 
     proc.on('error', (err) => {
