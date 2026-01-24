@@ -89,6 +89,10 @@ const INSTRUCTIONS_FILE = join(GLOBAL_CONFIG_DIR, 'instructions.md');
 // Project config file (in project root)
 const PROJECT_CONFIG_FILE = '.diffray.json';
 
+/**
+ * Returns default configuration with all required fields populated.
+ * Used as base config when no user/project config exists.
+ */
 export function getDefaultConfig(): Config {
   return ConfigSchema.parse({});
 }
@@ -117,7 +121,7 @@ async function loadConfigFile(filePath: string): Promise<Partial<Config> | null>
     return JSON.parse(content);
   } catch (error) {
     const message = error instanceof SyntaxError ? error.message : String(error);
-    throw new Error(`Invalid JSON in config file ${filePath}: ${message}`);
+    throw new Error(`Invalid JSON in config file ${filePath}: ${message}`, { cause: error });
   }
 }
 
@@ -320,13 +324,11 @@ export async function addExtendToConfig(
     // File doesn't exist or invalid JSON - start fresh
   }
 
-  // Ensure extends array exists
-  if (!Array.isArray(config.extends)) {
-    config.extends = [];
-  }
-
-  // Add URL if not already present
-  const extendsArray = config.extends as string[];
+  // Ensure extends array exists and validate elements
+  const extendsArray = Array.isArray(config.extends)
+    ? config.extends.filter((x): x is string => typeof x === 'string')
+    : [];
+  config.extends = extendsArray;
   if (!extendsArray.includes(url)) {
     extendsArray.push(url);
   }

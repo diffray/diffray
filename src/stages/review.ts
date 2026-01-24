@@ -331,11 +331,16 @@ export function createReviewStage(): Stage {
     execute: async (context: PipelineContext): Promise<StageResult> => {
       const startTime = Date.now();
 
+      // Guard: config must be initialized
+      if (!context.config) {
+        const error = 'Pipeline context config not initialized';
+        log.error(error);
+        return { stageId: 'review', stageName: 'Review', success: false, duration: 0, error };
+      }
+      const config = context.config;
+
       // Load global instructions from ~/.diffray/instructions.md
       const instructions = await loadInstructions();
-
-      // Get stage settings from config
-      const config = context.config!;
       const executorConfig = config.executors[config.executor] || {};
       const stageSettings = executorConfig.review || {};
       const stageConcurrency = stageSettings.concurrency ?? context.concurrency;
@@ -482,7 +487,11 @@ export function createReviewStage(): Stage {
             const workflowResults = await Promise.all(
               agentsToExecute.map(async (agent) => {
                 try {
-                  const batchInfo = agentBatchInfo.get(agent.name)!;
+                  const batchInfo = agentBatchInfo.get(agent.name);
+                  if (!batchInfo) {
+                    log.warn(`Batch info not found for agent: ${agent.name}`);
+                    return null;
+                  }
                   const workflowContext = {
                     ...context,
                     modelOverride: workflowModel || context.modelOverride,
@@ -542,7 +551,11 @@ export function createReviewStage(): Stage {
                   return null;
                 }
 
-                const batchInfo = agentBatchInfo.get(agent.name)!;
+                const batchInfo = agentBatchInfo.get(agent.name);
+                if (!batchInfo) {
+                  log.warn(`Batch info not found for agent: ${agent.name}`);
+                  return null;
+                }
 
                 // Log detailed batch information only in verbose mode
                 if (!context.quiet && context.verbose) {

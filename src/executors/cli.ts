@@ -8,7 +8,7 @@ import type { ExecutionContext, ExecutionResult } from '../types';
 import type { Executor, CLIConfig } from './types';
 import { log } from '../logger';
 import { loadOutputFormat, buildPrompt, buildUserPrompt, createResult } from './utils';
-import { trackProcess, ensureSigintHandler } from './process';
+import { trackProcess, ensureSigintHandler, gracefulKillSync } from './process';
 import { streamClaudeCli } from './claude-cli';
 import { streamCursorAgentCli } from './cursor-agent-cli';
 import { streamOpenCodeCli } from './opencode-cli';
@@ -92,8 +92,13 @@ async function executeClaudeCli(
   }
   streamArgs.push('--verbose');
 
+  // Guard: systemPromptArg required for streaming executor
+  if (!config.systemPromptArg) {
+    throw new Error('systemPromptArg required for streaming executor');
+  }
+
   // Use stdin for prompt to avoid Windows command line length limits
-  const cmdArgs = [config.command, ...streamArgs, config.systemPromptArg!, systemPrompt];
+  const cmdArgs = [config.command, ...streamArgs, config.systemPromptArg, systemPrompt];
 
   const output = await streamClaudeCli(cmdArgs, config.env || {}, effectiveTimeout, {
     stream: ctx.stream ?? false,
@@ -237,7 +242,7 @@ async function executeGenericCli(
     }
 
     const timeout = effectiveTimeout * 1000;
-    const timer = setTimeout(() => proc.kill(), timeout);
+    const timer = setTimeout(() => gracefulKillSync(proc, 2000), timeout);
 
     proc.on('close', (exitCode) => {
       clearTimeout(timer);
