@@ -15,7 +15,7 @@
   ],
   "scripts": {
     "dev": "npx tsx ./bin/diffray.ts",
-    "build": "node build.mjs && cp -r src/defaults dist/",
+    "build": "node build.mjs",
     "link:local": "node -e \"const p=require('./package.json');p.bin.diffray='./bin/diffray.ts';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2)+'\\n')\" && npm link",
     "link:publish": "node -e \"const p=require('./package.json');p.bin.diffray='./dist/diffray.cjs';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2)+'\\n')\"",
     "link": "npm link",
@@ -63,6 +63,7 @@
   ],
   "devDependencies": {
     "@eslint/js": "^9.39.2",
+    "@types/cross-spawn": "^6.0.6",
     "@types/node": "^22.15.21",
     "@typescript-eslint/eslint-plugin": "^8.52.0",
     "@typescript-eslint/parser": "^8.52.0",
@@ -90,6 +91,7 @@
   },
   "dependencies": {
     "citty": "^0.1.6",
+    "cross-spawn": "^7.0.6",
     "diff": "^8.0.2",
     "glob": "^13.0.0",
     "yaml": "^2.8.2",

@@ -92,7 +92,10 @@ async function loadValidationAgent(projectPath: string): Promise<Agent> {
         (a) => a.name === 'validation' || a.stage === 'validation'
       );
       return validationAgent ?? DEFAULT_VALIDATION_AGENT;
-    } catch {
+    } catch (error) {
+      log.debug?.(
+        `Failed to load validation agent: ${error instanceof Error ? error.message : String(error)}`
+      );
       return DEFAULT_VALIDATION_AGENT;
     }
   });
@@ -188,10 +191,12 @@ function linesOverlapOrClose(
 /**
  * Calculate similarity score between two issues (0-100)
  * Score breakdown: file match + line match + description match
+ * @param normalizedOriginalFile - Pre-normalized file path for the original issue (for performance)
  */
 function calculateIssueSimilarity(
   original: IndexedIssue,
-  returned: { file?: string; lineStart?: number; lineEnd?: number; shortDescription?: string }
+  returned: { file?: string; lineStart?: number; lineEnd?: number; shortDescription?: string },
+  normalizedOriginalFile?: string
 ): number {
   let score = 0;
 
@@ -200,7 +205,8 @@ function calculateIssueSimilarity(
     return 0;
   }
 
-  const normalizedOriginal = normalizeFilePath(original.file);
+  // Use pre-normalized path if provided, otherwise normalize on the fly
+  const normalizedOriginal = normalizedOriginalFile ?? normalizeFilePath(original.file);
   const normalizedReturned = normalizeFilePath(returned.file);
 
   if (normalizedOriginal === normalizedReturned) {
@@ -317,7 +323,10 @@ const parseJsonOutputFormat: ValidationParser = (output) => {
       }));
 
     return { validatedIssues, filteredIssues };
-  } catch {
+  } catch (error) {
+    log.debug?.(
+      `Failed to parse JSON output format: ${error instanceof Error ? error.message : String(error)}`
+    );
     return null;
   }
 };
@@ -338,7 +347,10 @@ const parseLegacyIdsFormat: ValidationParser = (output) => {
 
     const validatedIssues = ids.map((id) => ({ id, confidence: 100 }));
     return { validatedIssues, filteredIssues: [] };
-  } catch {
+  } catch (error) {
+    log.debug?.(
+      `Failed to parse legacy IDs format: ${error instanceof Error ? error.message : String(error)}`
+    );
     return null;
   }
 };
@@ -360,7 +372,10 @@ const parseFallbackArrayFormat: ValidationParser = (output) => {
 
     const validatedIssues = validIds.map((id) => ({ id, confidence: 100 }));
     return { validatedIssues, filteredIssues: [] };
-  } catch {
+  } catch (error) {
+    log.debug?.(
+      `Failed to parse fallback array format: ${error instanceof Error ? error.message : String(error)}`
+    );
     return null;
   }
 };
@@ -380,6 +395,12 @@ const parseFuzzyMatchFormat: ValidationParser = (output, batch) => {
     const issues = JSON.parse(match[1]);
     if (!Array.isArray(issues) || issues.length === 0) return null;
 
+    // Pre-normalize batch file paths for O(1) lookups instead of O(N*M) normalization
+    const normalizedPaths = new Map<number, string>();
+    for (const indexed of batch) {
+      normalizedPaths.set(indexed.id, normalizeFilePath(indexed.file));
+    }
+
     const matchedIds = new Set<number>();
 
     for (const returnedIssue of issues) {
@@ -389,7 +410,8 @@ const parseFuzzyMatchFormat: ValidationParser = (output, batch) => {
       for (const indexed of batch) {
         if (matchedIds.has(indexed.id)) continue;
 
-        const score = calculateIssueSimilarity(indexed, returnedIssue);
+        const normalizedFile = normalizedPaths.get(indexed.id);
+        const score = calculateIssueSimilarity(indexed, returnedIssue, normalizedFile);
         if (score > bestScore && score >= SIMILARITY_THRESHOLD.MINIMUM_SCORE) {
           bestScore = score;
           bestMatch = indexed;
@@ -405,7 +427,10 @@ const parseFuzzyMatchFormat: ValidationParser = (output, batch) => {
 
     const validatedIssues = Array.from(matchedIds).map((id) => ({ id, confidence: 100 }));
     return { validatedIssues, filteredIssues: [] };
-  } catch {
+  } catch (error) {
+    log.debug?.(
+      `Failed to parse fuzzy match format: ${error instanceof Error ? error.message : String(error)}`
+    );
     return null;
   }
 };
@@ -858,18 +883,49 @@ export function createValidationStage(): Stage {
         id: i + 1,
       }));
 
-      // Load validation agent from MD files (with priority: project > user > defaults)
-      const validationAgent = await loadValidationAgent(context.metadata.repository);
+      // Guard: config must be initialized
+      if (!context.config) {
+        const error = 'Pipeline context config not initialized';
+        log.error(error);
+        return {
+          stageId: 'validation',
+          stageName: 'Validation',
+          success: false,
+          duration: 0,
+          error,
+        };
+      }
+      const config = context.config;
 
-      // Load global instructions from ~/.diffray/instructions.md
-      const instructions = await loadInstructions();
+      // Load validation agent, instructions, and validation instructions in parallel
+      const [validationAgent, instructions, validationInstructions] = await Promise.all([
+        loadValidationAgent(context.metadata.repository),
+        loadInstructions(),
+        loadValidationInstructions(),
+      ]);
 
-      // Load validation instructions from defaults/prompts/validation-instructions.md
-      const validationInstructions = await loadValidationInstructions();
+      // Check if workflow is configured for validation stage
+      const workflowRuns = config.workflows?.validation;
+      let validationExecutor = config.executor;
+      let validationModel = context.modelOverride;
 
-      // Get stage settings from config
-      const config = context.config!;
-      const defaultExecutor = config.executor;
+      if (workflowRuns && workflowRuns.length > 0) {
+        // Use only the last workflow run for validation (unlike review stage which runs all)
+        // Validation is run once to filter issues, not to generate more issues per executor
+        const lastWorkflowRun = workflowRuns[workflowRuns.length - 1];
+        if (lastWorkflowRun) {
+          validationExecutor = lastWorkflowRun.executor || config.executor;
+          validationModel = lastWorkflowRun.model || context.modelOverride;
+        }
+
+        if (!context.quiet) {
+          log.info(
+            `Workflow mode: using ${validationExecutor}${validationModel ? ` (model: ${validationModel})` : ''} for validation`
+          );
+        }
+      }
+
+      const defaultExecutor = validationExecutor;
       const executorConfig = config.executors?.[defaultExecutor] || {};
       const stageSettings = executorConfig.validation || {};
       const batchSize = stageSettings.batchSize ?? VALIDATION_BATCH_SIZE;
@@ -885,6 +941,11 @@ export function createValidationStage(): Stage {
           duration: Date.now() - startTime,
         };
       }
+
+      // Override model if specified in workflow
+      const validationContext = validationModel
+        ? { ...context, modelOverride: validationModel }
+        : context;
 
       // Split into batches if needed
       const batches = chunk(indexedIssues, batchSize);
@@ -937,7 +998,7 @@ export function createValidationStage(): Stage {
                 batches.length,
                 validationAgent,
                 finalExecutor,
-                context,
+                validationContext,
                 instructions,
                 validationInstructions,
                 progress // undefined when no progress

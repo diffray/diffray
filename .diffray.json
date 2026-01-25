@@ -1,0 +1,30 @@
+{
+  "workflows": {
+    "review": [
+      { "executor": "claude-cli", "model": "opus" },
+      { "executor": "cursor-agent-cli", "model": "opus-4.5" },
+      { "executor": "opencode-cli", "model": "opencode/gpt-5-nano" },
+      { "executor": "cerebras-api", "model": "llama-3.3-70b" }
+    ],
+    "validation": [
+      { "executor": "claude-cli", "model": "opus" },
+      { "executor": "cursor-agent-cli", "model": "opus-4.5" }
+    ]
+  },
+  "executors": {
+    "claude-cli": {
+      "review": { "concurrency": 2 },
+      "validation": { "concurrency": 2 }
+    },
+    "cursor-agent-cli": {
+      "review": { "concurrency": 2 },
+      "validation": { "concurrency": 2 }
+    },
+    "opencode-cli": {
+      "review": { "concurrency": 2 }
+    },
+    "cerebras-api": {
+      "review": { "concurrency": 2 }
+    }
+  }
+}

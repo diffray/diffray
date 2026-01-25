@@ -4,6 +4,18 @@ import { homedir } from 'os';
 import { readFile, writeFile, mkdir, access } from 'node:fs/promises';
 import { getCached, invalidateCache, CACHE_KEYS } from './cache';
 
+// Schema for a single workflow run configuration
+const WorkflowRunSchema = z.object({
+  executor: z.string().optional(),
+  model: z.string().optional(),
+});
+
+// Schema for workflows configuration
+const WorkflowsSchema = z.object({
+  review: z.array(WorkflowRunSchema).optional(),
+  validation: z.array(WorkflowRunSchema).optional(),
+});
+
 // Schema for stage settings within an executor
 const StageSettingsSchema = z.object({
   model: z.string().optional(),
@@ -55,6 +67,7 @@ export const ConfigSchema = z.object({
   executors: z.record(z.string(), ExecutorSettingsSchema).default({}),
   agents: z.record(z.string(), AgentOverrideSchema).default({}),
   rules: z.record(z.string(), RuleOverrideSchema).default({}),
+  workflows: WorkflowsSchema.optional(),
   output: z
     .object({
       colorize: z.boolean().default(true),
@@ -65,6 +78,8 @@ export const ConfigSchema = z.object({
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
+export type WorkflowRun = z.infer<typeof WorkflowRunSchema>;
+export type Workflows = z.infer<typeof WorkflowsSchema>;
 
 // Global config paths
 const GLOBAL_CONFIG_DIR = join(homedir(), '.diffray');
@@ -74,6 +89,10 @@ const INSTRUCTIONS_FILE = join(GLOBAL_CONFIG_DIR, 'instructions.md');
 // Project config file (in project root)
 const PROJECT_CONFIG_FILE = '.diffray.json';
 
+/**
+ * Returns default configuration with all required fields populated.
+ * Used as base config when no user/project config exists.
+ */
 export function getDefaultConfig(): Config {
   return ConfigSchema.parse({});
 }
@@ -102,7 +121,7 @@ async function loadConfigFile(filePath: string): Promise<Partial<Config> | null>
     return JSON.parse(content);
   } catch (error) {
     const message = error instanceof SyntaxError ? error.message : String(error);
-    throw new Error(`Invalid JSON in config file ${filePath}: ${message}`);
+    throw new Error(`Invalid JSON in config file ${filePath}: ${message}`, { cause: error });
   }
 }
 
@@ -121,6 +140,7 @@ function mergeConfigs(global: Config, project: Partial<Config>): Config {
       : global.executors,
     agents: project.agents ? deepMergeOverrides(global.agents, project.agents) : global.agents,
     rules: project.rules ? deepMergeOverrides(global.rules, project.rules) : global.rules,
+    workflows: project.workflows ?? global.workflows,
     output: project.output ? { ...global.output, ...project.output } : global.output,
   };
 }
@@ -304,13 +324,11 @@ export async function addExtendToConfig(
     // File doesn't exist or invalid JSON - start fresh
   }
 
-  // Ensure extends array exists
-  if (!Array.isArray(config.extends)) {
-    config.extends = [];
-  }
-
-  // Add URL if not already present
-  const extendsArray = config.extends as string[];
+  // Ensure extends array exists and validate elements
+  const extendsArray = Array.isArray(config.extends)
+    ? config.extends.filter((x): x is string => typeof x === 'string')
+    : [];
+  config.extends = extendsArray;
   if (!extendsArray.includes(url)) {
     extendsArray.push(url);
   }

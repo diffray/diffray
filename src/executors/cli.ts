@@ -3,12 +3,12 @@
  */
 
 import { z } from 'zod';
-import { spawn } from 'node:child_process';
+import spawn from 'cross-spawn';
 import type { ExecutionContext, ExecutionResult } from '../types';
 import type { Executor, CLIConfig } from './types';
 import { log } from '../logger';
 import { loadOutputFormat, buildPrompt, buildUserPrompt, createResult } from './utils';
-import { trackProcess, ensureSigintHandler } from './process';
+import { trackProcess, ensureSigintHandler, gracefulKillSync } from './process';
 import { streamClaudeCli } from './claude-cli';
 import { streamCursorAgentCli } from './cursor-agent-cli';
 import { streamOpenCodeCli } from './opencode-cli';
@@ -92,21 +92,20 @@ async function executeClaudeCli(
   }
   streamArgs.push('--verbose');
 
-  let cmdArgs: string[];
-  if (config.systemPromptArg) {
-    cmdArgs = [config.command, ...streamArgs, config.systemPromptArg, systemPrompt, userPrompt];
-  } else {
-    const fullPrompt = buildPrompt(systemPrompt, ctx.input, format);
-    cmdArgs = config.useStdin
-      ? [config.command, ...streamArgs]
-      : [config.command, ...streamArgs, fullPrompt];
+  // Guard: systemPromptArg required for streaming executor
+  if (!config.systemPromptArg) {
+    throw new Error('systemPromptArg required for streaming executor');
   }
+
+  // Use stdin for prompt to avoid Windows command line length limits
+  const cmdArgs = [config.command, ...streamArgs, config.systemPromptArg, systemPrompt];
 
   const output = await streamClaudeCli(cmdArgs, config.env || {}, effectiveTimeout, {
     stream: ctx.stream ?? false,
     verbose: ctx.verbose ?? false,
     agentName: ctx.agent.name,
     cwd: ctx.cwd,
+    stdinInput: userPrompt,
   });
 
   return createResult(ctx, true, output, undefined, Date.now() - start, userPrompt);
@@ -139,14 +138,13 @@ async function executeCursorAgentCli(
     cmdArgs.push('--model', effectiveModel);
   }
 
-  // Add combined prompt as positional argument
-  cmdArgs.push(fullPrompt);
-
+  // Use stdin for prompt to avoid Windows command line length limits
   const output = await streamCursorAgentCli(cmdArgs, config.env || {}, effectiveTimeout, {
     stream: ctx.stream ?? false,
     verbose: ctx.verbose ?? false,
     agentName: ctx.agent.name,
     cwd: ctx.cwd,
+    stdinInput: fullPrompt,
   });
 
   return createResult(ctx, true, output, undefined, Date.now() - start, ctx.input);
@@ -172,14 +170,14 @@ async function executeOpenCodeCli(
   if (effectiveModel) {
     cmdArgs = [...cmdArgs, '--model', effectiveModel];
   }
-  // Add the prompt as argument
-  cmdArgs.push(fullPrompt);
 
+  // Use stdin for prompt to avoid Windows command line length limits
   const output = await streamOpenCodeCli(cmdArgs, config.env || {}, effectiveTimeout, {
     stream: ctx.stream ?? false,
     verbose: ctx.verbose ?? false,
     agentName: ctx.agent.name,
     cwd: ctx.cwd,
+    stdinInput: fullPrompt,
   });
 
   return createResult(ctx, true, output, undefined, Date.now() - start, ctx.input);
@@ -244,7 +242,7 @@ async function executeGenericCli(
     }
 
     const timeout = effectiveTimeout * 1000;
-    const timer = setTimeout(() => proc.kill(), timeout);
+    const timer = setTimeout(() => gracefulKillSync(proc, 2000), timeout);
 
     proc.on('close', (exitCode) => {
       clearTimeout(timer);

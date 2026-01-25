@@ -1,4 +1,5 @@
 import * as esbuild from 'esbuild';
+import { cp } from 'node:fs/promises';
 
 await esbuild.build({
   entryPoints: ['./bin/diffray.ts'],
@@ -54,5 +55,8 @@ await esbuild.build({
     'node:fs/promises',
   ],
 });
+
+// Copy defaults directory (cross-platform)
+await cp('src/defaults', 'dist/defaults', { recursive: true });
 
 console.log('Build completed: dist/diffray.cjs');
